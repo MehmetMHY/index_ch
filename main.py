@@ -3,6 +3,8 @@ import time
 import json
 import os
 import re
+import sqlite3
+from datetime import datetime, timezone
 
 
 def file_paths(dir_path):
@@ -65,22 +67,76 @@ def load_and_clean(file_path):
     return {"raw": raw, "cleaned": text}
 
 
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chats.db")
+
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT UNIQUE NOT NULL,
+            raw TEXT NOT NULL,
+            cleaned TEXT NOT NULL,
+            token_estimate INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    return conn
+
+
+def existing_file_paths(conn):
+    rows = conn.execute("SELECT file_path FROM chats").fetchall()
+    return {row[0] for row in rows}
+
+
+def insert_entries(conn, entries):
+    now = datetime.now(timezone.utc).isoformat()
+    conn.executemany(
+        """
+        INSERT INTO chats (file_path, raw, cleaned, token_estimate, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                file_path,
+                json.dumps(result["raw"]),
+                result["cleaned"],
+                estimate_tokens(result["cleaned"]),
+                now,
+                now,
+            )
+            for file_path, result in entries
+        ],
+    )
+    conn.commit()
+
+
 if __name__ == "__main__":
     start_time = time.time()
 
+    # this root path never changes, do not touch
     ROOT_DIR = os.path.join(os.path.expanduser("~"), ".ch/tmp/")
 
     json_paths = [f for f in file_paths(ROOT_DIR) if f.endswith(".json")]
 
-    with Pool() as pool:
-        results = pool.map(load_and_clean, json_paths)
+    conn = get_connection()
+    known_paths = existing_file_paths(conn)
+    new_paths = [p for p in json_paths if p not in known_paths]
 
-    data = dict(zip(json_paths, results))
+    if new_paths:
+        with Pool() as pool:
+            results = pool.map(load_and_clean, new_paths)
+        insert_entries(conn, zip(new_paths, results))
 
     counts = sorted(
-        (estimate_tokens(data[key]["cleaned"]) for key in data),
+        (row[0] for row in conn.execute("SELECT token_estimate FROM chats")),
         reverse=True,
     )
+    conn.close()
 
     for x in counts[:10]:
         print(x)
