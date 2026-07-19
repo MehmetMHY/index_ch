@@ -50,6 +50,9 @@ def is_auto_entry(content):
     if "The user executed the following command and here is the output:" in content:
         return True
 
+    if "[code-dump starts]" in content.lower():
+        return True
+
     return False
 
 
@@ -72,8 +75,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chats.db")
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS chats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT UNIQUE NOT NULL,
@@ -83,8 +85,7 @@ def get_connection():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
-        """
-    )
+        """)
     return conn
 
 
@@ -132,15 +133,8 @@ if __name__ == "__main__":
             results = pool.map(load_and_clean, new_paths)
         insert_entries(conn, zip(new_paths, results))
 
-    counts = sorted(
-        (row[0] for row in conn.execute("SELECT token_estimate FROM chats")),
-        reverse=True,
-    )
     conn.close()
-
-    for x in counts[:10]:
-        print(x)
 
     runtime = time.time() - start_time
 
-    print("\nRuntime:", runtime, "seconds")
+    print(f"Added {len(new_paths)} new chats. Runtime: {runtime:.2f} seconds")
