@@ -5,6 +5,7 @@ import json
 import time
 import itertools
 import threading
+from datetime import datetime, timezone
 from typing import Annotated
 
 import numpy as np
@@ -326,12 +327,27 @@ def preview(summary, limit=PREVIEW_CHARS):
     return paragraph[:limit].rsplit(" ", 1)[0].rstrip() + "..."
 
 
+def format_timestamp(name):
+    """Extract the epoch embedded in a ch_session_<epoch>.json filename and
+    format it as a 24-hour UTC timestamp, e.g. 'Jul 27, 2025 14:45 UTC'."""
+    match = re.search(r"(\d{9,})", name)
+    if not match:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return ""
+    return dt.strftime("%b %d, %Y %H:%M UTC")
+
+
 def print_results(results, meta, elapsed, usage):
     for i, (cid, grade) in enumerate(results, 1):
         info = meta[cid]
         name = os.path.basename(info["file_path"])
+        ts = format_timestamp(name)
+        ts_tag = f" · {ts}" if ts else ""
         tag = f" · relevance {grade}/3" if grade is not None else ""
-        print(f"{i}. {name}{tag}")
+        print(f"{i}. {name}{ts_tag}{tag}")
         print(f"   {preview(info['summary'])}\n")
     if not results:
         print("No matches.\n")

@@ -25,11 +25,16 @@ Three scripts, run in order, plus a shared config:
 - `retrieve.py` is an interactive prompt. Per query it embeds the query, runs
   vector search and FTS5 keyword search, fuses them with Reciprocal Rank Fusion,
   reranks the top candidates with `gpt-5.6-luna` (listwise, structured outputs),
-  and prints the top 5.
+  and prints the top 5, each with a UTC timestamp parsed from the epoch in the
+  chat's filename.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings
 cache and rebuilds them automatically when the data changes.
+
+`run.py` is a convenience wrapper that runs all three scripts in order. It uses
+`env/bin/python3` when a virtual environment exists, otherwise falls back to
+`python3`. It exits non-zero on the first script failure.
 
 ## Data and storage
 
@@ -45,12 +50,16 @@ cache and rebuilds them automatically when the data changes.
 ## Setup and commands
 
 ```bash
+python3 -m venv env
+source env/bin/activate
 pip install -r requirements.txt   # httpx, numpy, openai, pydantic
 export OPENAI_API_KEY="..."        # required by process.py and retrieve.py
 python3 build.py                   # ingest new chats
 python3 process.py                 # summarize + embed (calls OpenAI, costs money)
 python3 retrieve.py                # interactive search
 ```
+
+Or run all three in order with `python3 run.py`.
 
 Useful env vars for `process.py`:
 
@@ -97,3 +106,6 @@ sample, and do not run the full pipeline unprompted.
   sure that signature still changes so the caches rebuild.
 - `process.py` shuts its thread pool down manually (not via `with`) so Ctrl-C
   exits promptly. Keep that pattern if you touch the concurrency code.
+- `retrieve.py`'s `format_timestamp` extracts the epoch from chat filenames via
+  regex (`ch_session_<epoch>.json`). If Ch's filename format changes, the
+  timestamp silently disappears from output rather than erroring.
