@@ -6,6 +6,8 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 
+from config import DB_PATH, CHATS_SOURCE_DIR
+
 
 def file_paths(dir_path):
     return [
@@ -70,9 +72,6 @@ def load_and_clean(file_path):
     return {"raw": raw, "cleaned": text}
 
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chats.db")
-
-
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
@@ -119,10 +118,7 @@ def insert_entries(conn, entries):
 if __name__ == "__main__":
     start_time = time.time()
 
-    # this root path never changes, do not touch
-    ROOT_DIR = os.path.join(os.path.expanduser("~"), ".ch/tmp/")
-
-    json_paths = [f for f in file_paths(ROOT_DIR) if f.endswith(".json")]
+    json_paths = [f for f in file_paths(CHATS_SOURCE_DIR) if f.endswith(".json")]
 
     conn = get_connection()
     known_paths = existing_file_paths(conn)

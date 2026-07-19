@@ -3,6 +3,8 @@
 env/
 venv/
 __pycache__/
+cache/
 *.db
 *.db*
+*.npz
 .sandbox/

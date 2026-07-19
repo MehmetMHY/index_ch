@@ -7,12 +7,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import httpx
 from openai import OpenAI
 
-# reuse the shared db location + helpers from the build script so there is a
-# single source of truth for where the database lives
+# reuse the shared db helpers from the build script; all tunables live in config
 from build import get_connection
-
-SUMMARY_MODEL = "gpt-5.4-nano"
-EMBEDDING_MODEL = "text-embedding-3-small"
+from config import (
+    SUMMARY_MODEL,
+    EMBEDDING_MODEL,
+    DEFAULT_WORKERS,
+    COMMIT_EVERY,
+    PRINT_EVERY,
+    MAX_INPUT_CHARS,
+    estimate_cost,
+)
 
 # these calls are network bound (waiting on OpenAI), not cpu bound, so threads
 # run truly in parallel here (the GIL is released during I/O) and are faster and
@@ -21,28 +26,10 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 # is text-embedding-3-small at 10,000 RPM (~166 req/s), with gpt-5.4-nano at
 # 30,000 RPM — so per-request latency, not the API, is what caps throughput.
 # override with e.g. WORKERS=128 python process.py; the client retries on 429.
-MAX_WORKERS = int(os.environ.get("WORKERS", "64"))
-
-# commit to sqlite every this many finished rows so a crash keeps prior progress
-COMMIT_EVERY = 25
-
-# how often to print a progress / ETA line
-PRINT_EVERY = 10
+MAX_WORKERS = int(os.environ.get("WORKERS", DEFAULT_WORKERS))
 
 # set RETRY_ERRORS=1 to re-attempt chats that previously failed (error column set)
 RETRY_ERRORS = os.environ.get("RETRY_ERRORS", "").lower() in ("1", "true", "yes")
-
-# prices per 1M tokens (used only for the cost summary at the end)
-PRICE_SUMMARY_INPUT = 0.20
-PRICE_SUMMARY_OUTPUT = 1.25
-PRICE_EMBEDDING_INPUT = 0.02
-
-# gpt-5.4-nano rejects inputs over 272,000 tokens. our chats run ~3.7 chars per
-# token at their densest, so 900k chars stays comfortably under that (~244k
-# tokens) with room for the system prompt. chats larger than this are handled by
-# map-reduce (summarize each chunk of this size, then summarize the summaries),
-# so this doubles as the chunk size.
-MAX_INPUT_CHARS = 900_000
 
 SUMMARY_PROMPT = (
     "You are summarizing a conversation between a user and an AI assistant so it "
@@ -203,9 +190,8 @@ def fmt_duration(seconds):
 
 def print_summary(done, errors, runtime, tok_summary_in, tok_summary_out, tok_embed_in):
     cost = (
-        tok_summary_in / 1_000_000 * PRICE_SUMMARY_INPUT
-        + tok_summary_out / 1_000_000 * PRICE_SUMMARY_OUTPUT
-        + tok_embed_in / 1_000_000 * PRICE_EMBEDDING_INPUT
+        estimate_cost(SUMMARY_MODEL, tok_summary_in, tok_summary_out)
+        + estimate_cost(EMBEDDING_MODEL, tok_embed_in)
     )
 
     print("=" * 48)
