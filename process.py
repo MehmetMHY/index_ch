@@ -189,10 +189,9 @@ def fmt_duration(seconds):
 
 
 def print_summary(done, errors, runtime, tok_summary_in, tok_summary_out, tok_embed_in):
-    cost = (
-        estimate_cost(SUMMARY_MODEL, tok_summary_in, tok_summary_out)
-        + estimate_cost(EMBEDDING_MODEL, tok_embed_in)
-    )
+    cost = estimate_cost(
+        SUMMARY_MODEL, tok_summary_in, tok_summary_out
+    ) + estimate_cost(EMBEDDING_MODEL, tok_embed_in)
 
     print("=" * 48)
     print(f"Processed {done} chats ({errors} errors) in {fmt_duration(runtime)}")

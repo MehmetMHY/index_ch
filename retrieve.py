@@ -32,6 +32,7 @@ client = OpenAI(max_retries=3, http_client=httpx.Client(timeout=30))
 
 # ---- reranker structured output schema -------------------------------------
 
+
 class RankedDocument(BaseModel):
     document_id: str
     relevance: Annotated[int, Field(ge=0, le=3)]
@@ -67,6 +68,7 @@ Requirements:
 
 # ---- loading spinner -------------------------------------------------------
 
+
 class Spinner:
     """Animated one-line spinner that erases itself; no-op when not a terminal."""
 
@@ -99,6 +101,7 @@ class Spinner:
 
 
 # ---- full text search (FTS5) -----------------------------------------------
+
 
 def ensure_fts(conn):
     """Create the FTS5 index if missing, and rebuild it when chats have changed.
@@ -146,6 +149,7 @@ def fts_search(conn, query, n):
 
 
 # ---- vector search ---------------------------------------------------------
+
 
 def _embedding_signature(conn):
     count, latest = conn.execute(
@@ -209,6 +213,7 @@ def vector_search(ids, mat, query_vec, n):
 
 # ---- fusion ----------------------------------------------------------------
 
+
 def rrf_fuse(rankings, k=RRF_K):
     """Merge several ranked id lists via Reciprocal Rank Fusion."""
     scores = {}
@@ -220,14 +225,14 @@ def rrf_fuse(rankings, k=RRF_K):
 
 # ---- reranking -------------------------------------------------------------
 
+
 def rerank(query, candidate_ids, meta):
     """Listwise LLM rerank. Returns ([(id, grade)], in_tokens, out_tokens).
 
     Degrades to hybrid order (and 0 tokens) if the call fails.
     """
     docs = [
-        {"id": str(cid), "text": (meta[cid]["summary"] or "")}
-        for cid in candidate_ids
+        {"id": str(cid), "text": (meta[cid]["summary"] or "")} for cid in candidate_ids
     ]
     formatted = "\n\n".join(
         f"<document id={d['id']!r}>\n{d['text']}\n</document>" for d in docs
@@ -270,6 +275,7 @@ def rerank(query, candidate_ids, meta):
 
 
 # ---- top level search ------------------------------------------------------
+
 
 def search(conn, ids, mat, meta, query, do_rerank):
     query_vec, embed_in = embed_query(query)
@@ -330,9 +336,8 @@ def print_results(results, meta, elapsed, usage):
     if not results:
         print("No matches.\n")
 
-    cost = (
-        estimate_cost(EMBEDDING_MODEL, usage["embed_in"])
-        + estimate_cost(RERANK_MODEL, usage["rerank_in"], usage["rerank_out"])
+    cost = estimate_cost(EMBEDDING_MODEL, usage["embed_in"]) + estimate_cost(
+        RERANK_MODEL, usage["rerank_in"], usage["rerank_out"]
     )
     print(f"({len(results)} results in {elapsed:.2f}s | ~${cost:.6f})")
 
