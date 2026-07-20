@@ -28,7 +28,7 @@ Three scripts, run in order, plus a shared config:
   FTS5 keyword search per query, fuses every ranking with Reciprocal Rank
   Fusion, reranks the top candidates with `gpt-5.6-luna` (listwise, structured
   outputs) against the ORIGINAL query, and prints the top 5, each with a UTC
-  timestamp parsed from the epoch in the chat's filename. `:fast` toggles the
+  timestamp from the chat's last message (`chat_epoch`). `:fast` toggles the
   reranker, `:expand` toggles query expansion, and `/time`/`/t` sets a persistent
   time filter (rolling `1d`/`3d`/`1w`/`1m`/`1y`, `all` to clear, or `custom` which
   opens the `input_time.py` curses calendar for an absolute start/end range;
@@ -66,6 +66,12 @@ cache and rebuilds them automatically when the data changes.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
   `cache/chats.db` means a full rebuild and re-processing.
+- Schema changes are done as additive, idempotent migrations that read only
+  existing data, never via a full rebuild: `process.py`'s `migrate` adds
+  summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
+  populates `last_message_epoch` from the stored `raw`. This is deliberate: the
+  summaries/embeddings cost ~$6-7 to regenerate, so new columns must be
+  backfillable in place without any OpenAI calls.
 - The chat source path `~/.ch/tmp/` is owned by Ch and is read-only for us. Do
   not modify it or write to it.
 
@@ -139,11 +145,21 @@ sample, and do not run the full pipeline unprompted.
   sure that signature still changes so the caches rebuild.
 - `process.py` shuts its thread pool down manually (not via `with`) so Ctrl-C
   exits promptly. Keep that pattern if you touch the concurrency code.
-- `retrieve.py`'s `format_timestamp` and the `/time` filter both derive a chat's
-  time from the epoch in its filename (`chat_epoch`, regex `ch_session_<epoch>`),
-  never from the DB `created_at` (which is ingest time). If Ch's filename format
-  changes, timestamps vanish from output and time-filtered chats are excluded
-  (no parseable epoch) rather than erroring.
+- A chat's displayed timestamp and `/time` filtering both use `chat_epoch(info)`
+  in `retrieve.py`: the `last_message_epoch` column (the last message's own
+  `time` field), falling back to the filename epoch (`filename_epoch`, regex
+  `ch_session_<epoch>`) only when it is NULL. Neither uses the DB `created_at`
+  (ingest time) nor file mtime. The filename epoch alone is wrong for resumed/
+  continued sessions: it is frozen when the file is first saved, so a chat last
+  used yesterday can look days old. `build.py` computes `last_message_epoch` at
+  ingest (`message_epoch`); `backfill_message_epochs` populates it for existing
+  DBs from the stored `raw` JSON (one-time, idempotent, no API calls) and is
+  called at the start of both `build.py` and `retrieve.py`.
+- Caveat, not yet handled: `build.py` is incremental by filename, so a chat that
+  is resumed after ingest keeps its OLD `raw` snapshot in the DB. Its
+  `last_message_epoch` then reflects the last message present at ingest, not the
+  newest on disk. Fixing this needs build.py to re-ingest files whose content
+  grew, which is a separate change.
 - The `/time` filter is applied at the SEARCH level, not by trimming the final
   results: `allowed_in_range` masks the embeddings matrix so the vector leg
   returns the true top-`POOL` in-range, and `fts_search` fetches a wider window

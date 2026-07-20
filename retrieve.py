@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 
 # reuse the shared db helpers from the build script; all tunables live in config
-from build import get_connection, format_messages
+from build import get_connection, format_messages, backfill_message_epochs
 from config import (
     EMBEDDINGS_CACHE_PATH,
     EMBEDDING_MODEL,
@@ -211,9 +211,13 @@ def load_vectors(conn):
     is always read fresh from the db — that part is cheap, no float parsing.
     """
     rows = conn.execute(
-        "SELECT id, file_path, summary FROM chats WHERE embedding IS NOT NULL"
+        "SELECT id, file_path, summary, last_message_epoch "
+        "FROM chats WHERE embedding IS NOT NULL"
     ).fetchall()
-    meta = {r[0]: {"file_path": r[1], "summary": r[2]} for r in rows}
+    meta = {
+        r[0]: {"file_path": r[1], "summary": r[2], "last_message_epoch": r[3]}
+        for r in rows
+    }
     signature = _embedding_signature(conn)
 
     if os.path.exists(EMBEDDINGS_CACHE_PATH):
@@ -389,7 +393,7 @@ def allowed_in_range(ids, meta, time_filter):
     lo, hi = range_bounds(time_filter)
     mask = np.fromiter(
         (
-            (e := chat_epoch(meta[int(i)]["file_path"])) is not None
+            (e := chat_epoch(meta[int(i)])) is not None
             and e >= lo
             and (hi is None or e <= hi)
             for i in ids
@@ -475,17 +479,24 @@ def preview(summary, limit=PREVIEW_CHARS):
     return paragraph[:limit].rsplit(" ", 1)[0].rstrip() + "..."
 
 
-def chat_epoch(name):
+def filename_epoch(name):
     """Return the epoch embedded in a ch_session_<epoch>.json filename, or None."""
     match = re.search(r"(\d{9,})", os.path.basename(name))
     return int(match.group(1)) if match else None
 
 
-def format_timestamp(name):
-    """Format a chat filename's embedded epoch as a 24-hour UTC timestamp,
-    e.g. 'Jul 27, 2025 14:45 UTC'; empty string if there is no valid epoch."""
-    epoch = chat_epoch(name)
-    if epoch is None:
+def chat_epoch(info):
+    """Best "last active" epoch for a chat: the last message's time (stored in
+    last_message_epoch), falling back to the filename epoch when that is missing
+    (e.g. an empty chat). The last-message time is what makes resumed/continued
+    sessions sort and filter by when they were actually last used."""
+    return info.get("last_message_epoch") or filename_epoch(info["file_path"])
+
+
+def format_timestamp(epoch):
+    """Format an epoch as a 24-hour UTC timestamp, e.g. 'Jul 27, 2025 14:45 UTC';
+    empty string if the epoch is missing or invalid."""
+    if not epoch:
         return ""
     try:
         dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
@@ -498,7 +509,7 @@ def print_results(results, meta, elapsed, usage):
     for i, (cid, grade) in enumerate(results, 1):
         info = meta[cid]
         name = os.path.basename(info["file_path"])
-        ts = format_timestamp(name)
+        ts = format_timestamp(chat_epoch(info))
         ts_tag = f" · {ts}" if ts else ""
         tag = f" · relevance {grade}/3" if grade is not None else ""
         print(f"{i}. {name}{ts_tag}{tag}")
@@ -550,7 +561,7 @@ def pick_with_fzf(last_results, meta, hint):
     for i, (cid, grade) in enumerate(last_results, 1):
         info = meta[cid]
         name = os.path.basename(info["file_path"])
-        ts = format_timestamp(name)
+        ts = format_timestamp(chat_epoch(info))
         ts_tag = f" ({ts})" if ts else ""
         lines.append(f"[{i}] {name}{ts_tag} {preview(info['summary'], 80)}")
 
@@ -784,6 +795,7 @@ quit, exit, :q exit"""
 
 if __name__ == "__main__":
     conn = get_connection()
+    backfill_message_epochs(conn)  # one-time; no-op once the column exists
     ensure_fts(conn)
     print("Loading embeddings...")
     ids, mat, meta = load_vectors(conn)

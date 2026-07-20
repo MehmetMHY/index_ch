@@ -74,6 +74,21 @@ def format_messages(messages, skip_noise=True):
     return text
 
 
+def message_epoch(raw):
+    """Epoch of the chat's last message, or None if unavailable.
+
+    This is the real "last active" time, unlike the filename epoch which is
+    frozen when a session is first saved and goes stale for resumed/continued
+    chats. Scans from the end so a trailing message missing a time still yields
+    the most recent valid one.
+    """
+    for msg in reversed(raw.get("messages") or []):
+        t = msg.get("time")
+        if isinstance(t, (int, float)) and t > 0:
+            return int(t)
+    return None
+
+
 def load_and_clean(file_path):
     raw = load_json(file_path)
     return {"raw": raw, "cleaned": format_messages(raw["messages"], skip_noise=True)}
@@ -88,11 +103,36 @@ def get_connection():
             raw TEXT NOT NULL,
             cleaned TEXT NOT NULL,
             token_estimate INTEGER NOT NULL,
+            last_message_epoch INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
         """)
     return conn
+
+
+def backfill_message_epochs(conn):
+    """Add and populate last_message_epoch from the raw JSON already in the DB.
+
+    Idempotent and cheap: it runs the one-time backfill only when the column is
+    first added, then returns immediately on every later call. Makes no API
+    calls and reads no source files, so it never triggers re-processing.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
+    if "last_message_epoch" in cols:
+        return
+    conn.execute("ALTER TABLE chats ADD COLUMN last_message_epoch INTEGER")
+    updates = []
+    for row_id, raw_json in conn.execute("SELECT id, raw FROM chats"):
+        try:
+            epoch = message_epoch(json.loads(raw_json))
+        except (TypeError, ValueError):
+            epoch = None
+        if epoch is not None:
+            updates.append((epoch, row_id))
+    conn.executemany("UPDATE chats SET last_message_epoch = ? WHERE id = ?", updates)
+    conn.commit()
+    print(f"Backfilled last_message_epoch for {len(updates)} chats.")
 
 
 def existing_file_paths(conn):
@@ -104,8 +144,8 @@ def insert_entries(conn, entries):
     now = datetime.now(timezone.utc).isoformat()
     conn.executemany(
         """
-        INSERT INTO chats (file_path, raw, cleaned, token_estimate, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO chats (file_path, raw, cleaned, token_estimate, last_message_epoch, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -113,6 +153,7 @@ def insert_entries(conn, entries):
                 json.dumps(result["raw"]),
                 result["cleaned"],
                 estimate_tokens(result["cleaned"]),
+                message_epoch(result["raw"]),
                 now,
                 now,
             )
@@ -128,6 +169,7 @@ if __name__ == "__main__":
     json_paths = [f for f in file_paths(CHATS_SOURCE_DIR) if f.endswith(".json")]
 
     conn = get_connection()
+    backfill_message_epochs(conn)
     known_paths = existing_file_paths(conn)
     new_paths = [p for p in json_paths if p not in known_paths]
 
