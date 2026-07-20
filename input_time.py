@@ -1,4 +1,5 @@
-"""Interactive UTC calendar-based time range picker for the terminal.
+"""
+Interactive UTC calendar-based time range picker for the terminal.
 
 Public API:
     pick_time_range() -> (start, end) | None
