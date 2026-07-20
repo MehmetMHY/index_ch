@@ -22,7 +22,7 @@ The database and a small embeddings cache are stored in a `cache/` directory nex
 
 ## Setup
 
-Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, and `/run` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
+Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, `/run`, and `/time` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
 
 Create a virtual environment and install dependencies:
 

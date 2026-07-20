@@ -555,7 +555,7 @@ def pick_with_fzf(last_results, meta, hint):
         lines.append(f"[{i}] {name}{ts_tag} {preview(info['summary'], 80)}")
 
     proc = subprocess.run(
-        ["fzf", "--prompt=select> "],
+        ["fzf", "--prompt=select> ", "--cycle"],
         input="\n".join(lines),
         capture_output=True,
         text=True,
@@ -688,7 +688,9 @@ def time_filter_desc(tf):
     if not tf:
         return "all time"
     if isinstance(tf, tuple):
-        fmt = lambda e: datetime.fromtimestamp(e, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        fmt = lambda e: datetime.fromtimestamp(e, tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M UTC"
+        )
         return f"{fmt(tf[0])} to {fmt(tf[1])}"
     return TIME_LABELS[tf]
 
@@ -720,7 +722,7 @@ def pick_time_with_fzf():
 
     label_to_value = {label: value for value, label in options}
     proc = subprocess.run(
-        ["fzf", "--prompt=time> "],
+        ["fzf", "--prompt=time> ", "--cycle"],
         input="\n".join(label for _, label in options),
         capture_output=True,
         text=True,
@@ -797,7 +799,11 @@ if __name__ == "__main__":
 
     while True:
         try:
-            prompt = f"query [{time_filter_label(time_filter)}]> " if time_filter else "query> "
+            prompt = (
+                f"query [{time_filter_label(time_filter)}]> "
+                if time_filter
+                else "query> "
+            )
             query = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()

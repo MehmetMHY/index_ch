@@ -24,11 +24,12 @@ CAL_WIDTH = 21
 CONTROL_ROW = "◀ Month ▶   ◀ Year ▶"
 ARROW_POSITIONS = [i for i, c in enumerate(CONTROL_ROW) if c in "◀▶"]
 ARROW_DELTAS = (-1, 1, -12, 12)
+STATUS_WIDTH = len("0000-00-00 00:00 UTC")
 
 TITLE_Y = 3
 CONTROL_Y = 4
 WEEKDAY_Y = 5
-MIN_HEIGHT = 18
+MIN_HEIGHT = 16
 MIN_WIDTH = 24
 
 
@@ -120,7 +121,7 @@ def _origin_x(stdscr) -> int:
         len(datetime.now(timezone.utc).strftime("%A, %B %d %Y")),
         len(CONTROL_ROW),
         CAL_WIDTH,
-        22,
+        STATUS_WIDTH,
     )
     return max(0, (w - content_w) // 2)
 
@@ -140,9 +141,9 @@ def _ask_time(stdscr, default: time, ox: int = 0) -> time:
 
 def _confirm(stdscr) -> bool:
     """Return True to confirm, False to re-edit, or raise _Cancelled to exit."""
-    h, w = stdscr.getmaxyx()
+    h, _ = stdscr.getmaxyx()
     msg = "Confirm range? [Y/n]:"
-    x = max(0, (w - len(msg)) // 2)
+    x = _origin_x(stdscr)
     curses.curs_set(1)
     stdscr.move(h - 1, 0)
     stdscr.clrtoeol()
@@ -188,8 +189,8 @@ def _draw(
     today = now_utc.strftime("%A, %B %d %Y")
     tz_label = now_utc.strftime("%H:%M UTC")
     cal = calendar.monthcalendar(shown.year, shown.month)
-    content_w = max(len(today), len(CONTROL_ROW), CAL_WIDTH, 22)
-    content_h = WEEKDAY_Y + 1 + len(cal) + 1 + 4 + 1 + 1 + 2 + 1
+    content_w = max(len(today), len(CONTROL_ROW), CAL_WIDTH, STATUS_WIDTH)
+    content_h = WEEKDAY_Y + 1 + len(cal) + 1 + 2 + 1
     ox = max(0, (w - content_w) // 2)
     oy = max(0, (h - content_h) // 2)
 
@@ -235,29 +236,15 @@ def _draw(
     start_val = (
         start_dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         if start_dt
-        else "not selected"
+        else "missing start time"
     )
-    _safe_addstr(stdscr, status_y, ox, "Start:", curses.A_UNDERLINE)
-    _safe_addstr(stdscr, status_y + 1, ox, start_val)
+    _safe_addstr(stdscr, status_y, ox, start_val)
     end_val = (
         end_dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         if end_dt
-        else "not selected"
+        else "missing end time"
     )
-    _safe_addstr(stdscr, status_y + 2, ox, "End:", curses.A_UNDERLINE)
-    _safe_addstr(stdscr, status_y + 3, ox, end_val)
-
-    help_items = [
-        ("⨁", "Move"),
-        ("⮐", "Pick"),
-        ("⮕", "Ctrl"),
-        ("Q", "Quit"),
-    ]
-    col_w = 11
-    for i, (sym, label) in enumerate(help_items):
-        hy = status_y + 5 + i // 2
-        hx = ox + (i % 2) * col_w
-        _safe_addstr(stdscr, hy, hx, f"{sym}  = {label}")
+    _safe_addstr(stdscr, status_y + 1, ox, end_val)
 
     stdscr.refresh()
 

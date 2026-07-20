@@ -71,8 +71,9 @@ cache and rebuilds them automatically when the data changes.
 
 ## Setup and commands
 
-`retrieve.py`'s `/view` and `/copy` pickers need `fzf` on PATH (not a pip
-package; install separately, e.g. `brew install fzf`).
+`retrieve.py`'s `/view`, `/copy`, `/run`, and `/time` pickers need `fzf` on
+PATH (not a pip package; install separately, e.g. `brew install fzf`). Both
+fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 
 ```bash
 python3 -m venv env
