@@ -22,13 +22,18 @@ Three scripts, run in order, plus a shared config:
 - `process.py` summarizes each chat (`gpt-5.4-nano`) and embeds the summary
   (`text-embedding-3-small`), saving both back. Resumable: only touches rows
   missing a summary or embedding.
-- `retrieve.py` is an interactive prompt. Per query it embeds the query, runs
-  vector search and FTS5 keyword search, fuses them with Reciprocal Rank Fusion,
-  reranks the top candidates with `gpt-5.6-luna` (listwise, structured outputs),
-  and prints the top 5, each with a UTC timestamp parsed from the epoch in the
-  chat's filename. It also has `/view`/`/v`, `/copy`/`/c`, and `/run`/`/r`
-  (fzf-pick one of the last results, or pass a number to skip the picker) and
-  `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
+- `retrieve.py` is an interactive prompt. Per query it optionally expands the
+  query into a few variants (`gpt-5.4-nano`, structured output, reasoning off),
+  embeds the original plus variants in one batched call, runs vector search and
+  FTS5 keyword search per query, fuses every ranking with Reciprocal Rank
+  Fusion, reranks the top candidates with `gpt-5.6-luna` (listwise, structured
+  outputs) against the ORIGINAL query, and prints the top 5, each with a UTC
+  timestamp parsed from the epoch in the chat's filename. `:fast` toggles the
+  reranker, `:expand` toggles query expansion, and `/time`/`/t` sets a persistent
+  rolling time window (`1d`/`1w`/`1m`/`1y`, or `all` to clear; fzf picker or a
+  direct token) that scopes every subsequent search to chats within that window.
+  It also has `/view`/`/v`, `/copy`/`/c`, and `/run`/`/r` (fzf-pick one of the
+  last results, or pass a number to skip the picker) and `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
   transcript to a temp file under `cache/tmp/`, opens it in `$EDITOR` (falls
   back to `vim`), and deletes the file the moment the editor exits — any
   in-editor edits/saves are never persisted anywhere. `/copy` copies just the
@@ -116,14 +121,30 @@ sample, and do not run the full pipeline unprompted.
   instructions). Keep the prompt-injection guards in `RERANK_SYSTEM`, and keep
   the defensive validation that drops hallucinated IDs and appends dropped
   candidates in hybrid order.
+- Query expansion (`expand_query`) is a recall aid, not correctness-critical:
+  it degrades to `([], 0, 0)` on any failure so search falls back to the
+  original query alone. Keep that graceful fallback. The reranker is always
+  fed the ORIGINAL query, never a variant, so user intent stays intact.
+  `embed_queries` batches the original query and all variants into one
+  embeddings request (order restored via `.index`), so expansion adds a single
+  nano LLM call but no extra embedding round trips.
 - `retrieve.py`'s FTS index and embeddings cache invalidate on a signature of
   row count plus latest `updated_at`. If you change how rows are updated, make
   sure that signature still changes so the caches rebuild.
 - `process.py` shuts its thread pool down manually (not via `with`) so Ctrl-C
   exits promptly. Keep that pattern if you touch the concurrency code.
-- `retrieve.py`'s `format_timestamp` extracts the epoch from chat filenames via
-  regex (`ch_session_<epoch>.json`). If Ch's filename format changes, the
-  timestamp silently disappears from output rather than erroring.
+- `retrieve.py`'s `format_timestamp` and the `/time` filter both derive a chat's
+  time from the epoch in its filename (`chat_epoch`, regex `ch_session_<epoch>`),
+  never from the DB `created_at` (which is ingest time). If Ch's filename format
+  changes, timestamps vanish from output and time-filtered chats are excluded
+  (no parseable epoch) rather than erroring.
+- The `/time` filter is applied at the SEARCH level, not by trimming the final
+  results: `allowed_in_range` masks the embeddings matrix so the vector leg
+  returns the true top-`POOL` in-range, and `fts_search` fetches a wider window
+  then filters to the in-range set. This keeps narrow ranges (e.g. `1d`) from
+  coming up empty because their best chats were not in the global top-`POOL`.
+  Windows are rolling from now; `1m`/`1y` are approximate (30d/365d) per
+  `config.TIME_RANGES`.
 - `build.py`'s `format_messages(messages, skip_noise=...)` is shared: `skip_noise=True`
   is the `cleaned` text `load_and_clean` stores, `skip_noise=False` is what
   `retrieve.py`'s `/view` shows as the raw transcript. Keep noise-filtering

@@ -18,7 +18,7 @@ import curses
 from datetime import date, datetime, time, timezone
 from typing import Optional, Tuple
 
-# ── Layout constants ──────────────────────────────────────────────
+# Layout constants
 CAL_WIDTH = 21
 CONTROL_ROW = "◀ Month ▶   ◀ Year ▶"
 ARROW_POSITIONS = [i for i, c in enumerate(CONTROL_ROW) if c in "◀▶"]
@@ -31,12 +31,12 @@ MIN_HEIGHT = 18
 MIN_WIDTH = 24
 
 
-# ── Exceptions ────────────────────────────────────────────────────
+# Exceptions
 class _Cancelled(Exception):
     """Internal: user cancelled via Ctrl-C / Ctrl-D / Q."""
 
 
-# ── Public API ────────────────────────────────────────────────────
+# Public API
 def pick_time_range() -> Optional[Tuple[datetime, datetime]]:
     """Open an interactive UTC calendar picker in the terminal.
 
@@ -50,7 +50,7 @@ def pick_time_range() -> Optional[Tuple[datetime, datetime]]:
         return None
 
 
-# ── Internal helpers ──────────────────────────────────────────────
+# Internal helpers
 def _safe_addstr(
     stdscr, y: int, x: int, text: str, attr: int = curses.A_NORMAL
 ) -> None:
@@ -115,7 +115,12 @@ def _is_last_visible_week(d: date) -> bool:
 
 def _origin_x(stdscr) -> int:
     _, w = stdscr.getmaxyx()
-    content_w = max(len(datetime.now(timezone.utc).strftime("%A, %B %d %Y")), len(CONTROL_ROW), CAL_WIDTH, 22)
+    content_w = max(
+        len(datetime.now(timezone.utc).strftime("%A, %B %d %Y")),
+        len(CONTROL_ROW),
+        CAL_WIDTH,
+        22,
+    )
     return max(0, (w - content_w) // 2)
 
 
@@ -154,7 +159,7 @@ def _confirm(stdscr) -> bool:
     return key in (10, 13, curses.KEY_ENTER, ord("y"), ord("Y"))
 
 
-# ── Drawing ───────────────────────────────────────────────────────
+# Drawing
 def _draw(
     stdscr,
     shown: date,
@@ -256,7 +261,7 @@ def _draw(
     stdscr.refresh()
 
 
-# ── Main picker loop ──────────────────────────────────────────────
+# Main picker loop
 def _picker(stdscr):
     curses.curs_set(0)
     stdscr.keypad(True)
@@ -319,14 +324,16 @@ def _picker(stdscr):
                         )
                     else:
                         end_dt = candidate
-                        _draw(stdscr, shown, cursor, start_dt, end_dt, focus, control_idx)
+                        _draw(
+                            stdscr, shown, cursor, start_dt, end_dt, focus, control_idx
+                        )
                         if _confirm(stdscr):
                             return start_dt, end_dt
 
         shown = cursor.replace(day=1)
 
 
-# ── CLI demo ──────────────────────────────────────────────────────
+# CLI demo
 if __name__ == "__main__":
     result = pick_time_range()
 

@@ -21,6 +21,10 @@ SUMMARY_MODEL = "gpt-5.4-nano"
 EMBEDDING_MODEL = "text-embedding-3-small"
 RERANK_MODEL = "gpt-5.6-luna"
 RERANK_EFFORT = "low"
+# query expansion reuses the cheap summary model (same pricing key); a simple
+# rewrite needs no reasoning, so effort is off to keep it fast
+QUERY_EXPANSION_MODEL = SUMMARY_MODEL
+QUERY_EXPANSION_EFFORT = "none"
 
 # Pricing per model as (input, output) in USD per 1M tokens. Used only for the
 # cost estimates the scripts print; update these if a model or its price changes.
@@ -50,3 +54,13 @@ RERANK_POOL = 15
 TOP_K = 5
 RRF_K = 60
 PREVIEW_CHARS = 200
+# number of extra query variants the LLM generates before fusion (0 disables)
+NUM_EXPANSIONS = 3
+# selectable rolling time windows for the /time filter, in seconds from now.
+# order is preserved in the fzf picker; months/years are approximate.
+TIME_RANGES = {
+    "1d": 86_400,
+    "1w": 7 * 86_400,
+    "1m": 30 * 86_400,
+    "1y": 365 * 86_400,
+}
