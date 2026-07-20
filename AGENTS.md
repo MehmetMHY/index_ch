@@ -30,8 +30,9 @@ Three scripts, run in order, plus a shared config:
   outputs) against the ORIGINAL query, and prints the top 5, each with a UTC
   timestamp parsed from the epoch in the chat's filename. `:fast` toggles the
   reranker, `:expand` toggles query expansion, and `/time`/`/t` sets a persistent
-  rolling time window (`1d`/`1w`/`1m`/`1y`, or `all` to clear; fzf picker or a
-  direct token) that scopes every subsequent search to chats within that window.
+  time filter (rolling `1d`/`3d`/`1w`/`1m`/`1y`, `all` to clear, or `custom` which
+  opens the `input_time.py` curses calendar for an absolute start/end range;
+  fzf picker or a direct token) that scopes every subsequent search.
   It also has `/view`/`/v`, `/copy`/`/c`, and `/run`/`/r` (fzf-pick one of the
   last results, or pass a number to skip the picker) and `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
   transcript to a temp file under `cache/tmp/`, opens it in `$EDITOR` (falls
@@ -47,6 +48,10 @@ Three scripts, run in order, plus a shared config:
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings
 cache and rebuilds them automatically when the data changes.
+
+`input_time.py` is a standalone curses UTC calendar range picker
+(`pick_time_range() -> (start, end) | None`) that `retrieve.py` imports for the
+`/time custom` absolute range. It has no project dependencies of its own.
 
 `run.py` is a convenience wrapper that runs all three scripts in order. It uses
 `env/bin/python3` when a virtual environment exists, otherwise falls back to
@@ -143,8 +148,11 @@ sample, and do not run the full pipeline unprompted.
   returns the true top-`POOL` in-range, and `fts_search` fetches a wider window
   then filters to the in-range set. This keeps narrow ranges (e.g. `1d`) from
   coming up empty because their best chats were not in the global top-`POOL`.
-  Windows are rolling from now; `1m`/`1y` are approximate (30d/365d) per
-  `config.TIME_RANGES`.
+- The `time_filter` value has three shapes: `None` (all time), a `TIME_RANGES`
+  key (rolling window ending now, recomputed live each query; `1m`/`1y` are
+  approximate 30d/365d), or a `(start_epoch, end_epoch)` tuple (absolute custom
+  range from the calendar picker). `range_bounds` normalizes the latter two to
+  `(lo, hi)`; keep the tuple-vs-str discriminator if you touch this.
 - `build.py`'s `format_messages(messages, skip_noise=...)` is shared: `skip_noise=True`
   is the `cleaned` text `load_and_clean` stores, `skip_noise=False` is what
   `retrieve.py`'s `/view` shows as the raw transcript. Keep noise-filtering

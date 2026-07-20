@@ -38,6 +38,9 @@ from config import (
     estimate_cost,
 )
 
+# interactive UTC calendar picker for the /time "custom" absolute range
+from input_time import pick_time_range
+
 client = OpenAI(max_retries=3, http_client=httpx.Client(timeout=30))
 
 
@@ -364,9 +367,18 @@ def rerank(query, candidate_ids, meta):
 # ---- top level search ------------------------------------------------------
 
 
+def range_bounds(time_filter):
+    """Return (lo_epoch, hi_epoch) for the active filter; hi None means no upper
+    bound. A TIME_RANGES key is a rolling window ending now (computed live per
+    query); a (start, end) tuple is an absolute custom range from the picker."""
+    if isinstance(time_filter, tuple):
+        return time_filter
+    return time.time() - TIME_RANGES[time_filter], None
+
+
 def allowed_in_range(ids, meta, time_filter):
-    """Return (filtered_id_array, filtered_row_mask, allowed_set) for a rolling
-    time window, or (ids, None, None) when no filter is active.
+    """Return (filtered_id_array, filtered_row_mask, allowed_set) for the active
+    time filter, or (ids, None, None) when no filter is active.
 
     Chats whose filename has no parseable epoch are excluded while a filter is
     on. The mask aligns with the embeddings matrix rows so the vector leg can be
@@ -374,10 +386,12 @@ def allowed_in_range(ids, meta, time_filter):
     """
     if not time_filter:
         return ids, None, None
-    cutoff = time.time() - TIME_RANGES[time_filter]
+    lo, hi = range_bounds(time_filter)
     mask = np.fromiter(
         (
-            (e := chat_epoch(meta[int(i)]["file_path"])) is not None and e >= cutoff
+            (e := chat_epoch(meta[int(i)]["file_path"])) is not None
+            and e >= lo
+            and (hi is None or e <= hi)
             for i in ids
         ),
         dtype=bool,
@@ -650,33 +664,59 @@ def handle_run(args, last_results, meta):
         run_chat(cid, meta)
 
 
-# ---- /time: scope searches to a rolling window ------------------------------
+# ---- /time: scope searches to a time window ---------------------------------
 
-TIME_LABELS = {"1d": "past 1 day", "1w": "past 1 week", "1m": "past 1 month", "1y": "past 1 year"}
+TIME_LABELS = {
+    "1d": "past 1 day",
+    "3d": "past 3 days",
+    "1w": "past 1 week",
+    "1m": "past 1 month",
+    "1y": "past 1 year",
+}
+TIME_USAGE = f"/time <{'|'.join(TIME_RANGES)}|all|custom>"
+
+
+def time_filter_label(tf):
+    """Short tag for the prompt indicator: a key, 'custom', or None."""
+    if not tf:
+        return None
+    return "custom" if isinstance(tf, tuple) else tf
+
+
+def time_filter_desc(tf):
+    """Human-readable description for the 'filter set' confirmation."""
+    if not tf:
+        return "all time"
+    if isinstance(tf, tuple):
+        fmt = lambda e: datetime.fromtimestamp(e, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return f"{fmt(tf[0])} to {fmt(tf[1])}"
+    return TIME_LABELS[tf]
 
 
 def parse_time_token(token):
-    """Map a token to a filter value. Returns (ok, value): value is a
-    TIME_RANGES key or None (all time); ok is False for an unknown token."""
+    """Map a token to (action, value). action is 'set' (value is a key or None),
+    'custom' (launch the picker), or 'error' (unknown token)."""
     t = token.lower()
     if t in ("all", "off", "none"):
-        return True, None
+        return "set", None
+    if t == "custom":
+        return "custom", None
     if t in TIME_RANGES:
-        return True, t
-    return False, None
+        return "set", t
+    return "error", None
 
 
 def pick_time_with_fzf():
-    """fzf-pick a time window. Returns (changed, value); changed is False if fzf
-    is missing, the pick was cancelled, or 'custom' (not yet supported)."""
+    """fzf-pick a time window. Returns (action, value) like parse_time_token,
+    plus 'cancel' when fzf is missing or the pick was cancelled."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH — install it, or use '/time <{'|'.join(TIME_RANGES)}|all>'.")
-        return False, None
+        print(f"fzf not found on PATH — install it, or use '{TIME_USAGE}'.")
+        return "cancel", None
 
-    # ordered (value, label); None = all time, "custom" = placeholder
-    options = [(None, "All time (no filter)")]
+    # ordered (value, label); None = all time, "custom" opens the calendar picker
+    options = [(None, "All time")]
     options += [(k, TIME_LABELS.get(k, k).capitalize()) for k in TIME_RANGES]
-    options.append(("custom", "Custom (coming soon)"))
+    options.append(("custom", "Custom"))
 
     label_to_value = {label: value for value, label in options}
     proc = subprocess.run(
@@ -686,27 +726,42 @@ def pick_time_with_fzf():
         text=True,
     )
     if proc.returncode != 0 or not proc.stdout.strip():
-        return False, None
+        return "cancel", None
 
     value = label_to_value.get(proc.stdout.strip())
     if value == "custom":
-        print("Custom ranges are not supported yet.")
-        return False, None
-    return True, value
+        return "custom", None
+    return "set", value
+
+
+def run_custom_picker():
+    """Open the calendar picker; return an absolute (start_epoch, end_epoch)
+    tuple, or None if the user cancelled."""
+    result = pick_time_range()
+    if result is None:
+        return None
+    start, end = result
+    return (start.timestamp(), end.timestamp())
 
 
 def handle_time(args, current):
     """Return the (possibly unchanged) time filter after a /time command."""
     if args:
-        ok, value = parse_time_token(args[0])
-        if not ok:
-            print(f"Usage: /time <{'|'.join(TIME_RANGES)}|all>")
+        action, value = parse_time_token(args[0])
+        if action == "error":
+            print(f"Usage: {TIME_USAGE}")
             return current
     else:
-        changed, value = pick_time_with_fzf()
-        if not changed:
+        action, value = pick_time_with_fzf()
+
+    if action == "cancel":
+        return current
+    if action == "custom":
+        value = run_custom_picker()
+        if value is None:
             return current
-    print(f"Time filter set to {'all time' if value is None else TIME_LABELS[value]}.")
+
+    print(f"Time filter set to {time_filter_desc(value)}.")
     return value
 
 
@@ -718,7 +773,7 @@ HELP_TEXT = """<query>        search your chats
 /run, /r       fuzzy-pick a result, resume it in ch (ch -f <file>)
 /run <n>       resume result n directly, skipping the fzf picker
 /time, /t      pick a time window to scope searches to
-/time <win>    set it directly: 1d, 1w, 1m, 1y, or all
+/time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
 :fast          toggle the LLM reranker on/off
 :expand        toggle LLM query expansion on/off
 /help, /h      show this list
@@ -742,7 +797,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            prompt = f"query [{time_filter}]> " if time_filter else "query> "
+            prompt = f"query [{time_filter_label(time_filter)}]> " if time_filter else "query> "
             query = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()

@@ -60,6 +60,7 @@ NUM_EXPANSIONS = 3
 # order is preserved in the fzf picker; months/years are approximate.
 TIME_RANGES = {
     "1d": 86_400,
+    "3d": 3 * 86_400,
     "1w": 7 * 86_400,
     "1m": 30 * 86_400,
     "1y": 365 * 86_400,
