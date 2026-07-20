@@ -22,7 +22,7 @@ The database and a small embeddings cache are stored in a `cache/` directory nex
 
 ## Setup
 
-Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/), and [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view` and `/copy` commands to pick a result).
+Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, and `/run` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
 
 Create a virtual environment and install dependencies:
 
@@ -71,6 +71,7 @@ At the `query>` prompt:
 - Type a question to get the top 5 matching chats with short summaries.
 - Type `/view` or `/v` to fuzzy-pick one of the latest results with fzf and open its summary plus full raw transcript in `$EDITOR` (falls back to `vim`). Add a number to skip the picker, e.g. `/v 2`.
 - Type `/copy` or `/c` to fuzzy-pick one of the latest results and copy its chat filename (`ch_session_<epoch>.json`) to the clipboard. Add a number to skip the picker, e.g. `/c 2`.
+- Type `/run` or `/r` to fuzzy-pick one of the latest results and resume it in [Ch](https://github.com/MehmetMHY/ch) (`ch -f <file>`). Add a number to skip the picker, e.g. `/r 2`. Requires `ch` on PATH.
 - Type `:fast` to toggle the LLM reranker off for quicker, keyword-and-vector-only results.
 - Type `/help` or `/h` to list all commands.
 - Type `quit` to exit.

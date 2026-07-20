@@ -486,6 +486,16 @@ def copy_chat(cid, meta):
         print(f"Copied {name} to clipboard.")
 
 
+def run_chat(cid, meta):
+    """Hand the terminal over to `ch -f <name>` to resume the session in Ch."""
+    if shutil.which("ch") is None:
+        print("ch not found on PATH — https://github.com/MehmetMHY/ch")
+        return
+    name = os.path.basename(meta[cid]["file_path"])
+    print(f"Opening {name} in ch...")
+    subprocess.run(["ch", "-f", name])
+
+
 def handle_view(args, last_results, meta, conn):
     cid = resolve_pick(args, last_results, meta, "/view")
     if cid is not None:
@@ -498,11 +508,19 @@ def handle_copy(args, last_results, meta):
         copy_chat(cid, meta)
 
 
+def handle_run(args, last_results, meta):
+    cid = resolve_pick(args, last_results, meta, "/run")
+    if cid is not None:
+        run_chat(cid, meta)
+
+
 HELP_TEXT = """<query>        search your chats
 /view, /v      fuzzy-pick a result, open it in $EDITOR (falls back to vim)
 /view <n>      open result n directly, skipping the fzf picker
 /copy, /c      fuzzy-pick a result, copy its filename to the clipboard
 /copy <n>      copy result n directly, skipping the fzf picker
+/run, /r       fuzzy-pick a result, resume it in ch (ch -f <file>)
+/run <n>       resume result n directly, skipping the fzf picker
 :fast          toggle the LLM reranker on/off
 /help, /h      show this list
 quit, exit, :q exit"""
@@ -544,6 +562,9 @@ if __name__ == "__main__":
             continue
         if parts[0].lower() in ("/copy", "/c"):
             handle_copy(parts[1:], last_results, meta)
+            continue
+        if parts[0].lower() in ("/run", "/r"):
+            handle_run(parts[1:], last_results, meta)
             continue
 
         start = time.time()

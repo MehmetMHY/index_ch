@@ -26,15 +26,18 @@ Three scripts, run in order, plus a shared config:
   vector search and FTS5 keyword search, fuses them with Reciprocal Rank Fusion,
   reranks the top candidates with `gpt-5.6-luna` (listwise, structured outputs),
   and prints the top 5, each with a UTC timestamp parsed from the epoch in the
-  chat's filename. It also has `/view`/`/v` and `/copy`/`/c` (fzf-pick one of
-  the last results, or pass a number to skip the picker) and `/help`/`/h`.
-  `/view` writes the summary plus the full raw (unfiltered) transcript to a
-  temp file under `cache/tmp/`, opens it in `$EDITOR` (falls back to `vim`),
-  and deletes the file the moment the editor exits — any in-editor edits/saves
-  are never persisted anywhere. `/copy` copies just the chat's filename
-  (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`/`wl-copy`
-  /`xclip`/`xsel` depending on OS). Requires `fzf` on PATH for the picker;
-  degrades to a message telling the user to pass a number if it's missing.
+  chat's filename. It also has `/view`/`/v`, `/copy`/`/c`, and `/run`/`/r`
+  (fzf-pick one of the last results, or pass a number to skip the picker) and
+  `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
+  transcript to a temp file under `cache/tmp/`, opens it in `$EDITOR` (falls
+  back to `vim`), and deletes the file the moment the editor exits — any
+  in-editor edits/saves are never persisted anywhere. `/copy` copies just the
+  chat's filename (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`
+  /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
+  `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
+  resume that session inside Ch, handing over the terminal until Ch exits.
+  Requires `fzf` on PATH for the picker (degrades to a message telling the
+  user to pass a number if it's missing) and `ch` on PATH for `/run`.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings
