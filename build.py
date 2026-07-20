@@ -3,10 +3,21 @@ import time
 import json
 import os
 import re
+import hashlib
 import sqlite3
 from datetime import datetime, timezone
 
 from config import DB_PATH, CHATS_SOURCE_DIR
+
+
+def file_hash(path):
+    """SHA-256 of a file's raw bytes, used to detect when a chat file changed
+    (e.g. a session resumed after ingest gains new messages)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def file_paths(dir_path):
@@ -104,6 +115,7 @@ def get_connection():
             cleaned TEXT NOT NULL,
             token_estimate INTEGER NOT NULL,
             last_message_epoch INTEGER,
+            content_hash TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
@@ -135,17 +147,41 @@ def backfill_message_epochs(conn):
     print(f"Backfilled last_message_epoch for {len(updates)} chats.")
 
 
-def existing_file_paths(conn):
-    rows = conn.execute("SELECT file_path FROM chats").fetchall()
-    return {row[0] for row in rows}
+def backfill_content_hashes(conn):
+    """Add content_hash and populate it from the current on-disk files.
+
+    Idempotent: the one-time backfill runs only when the column is first added,
+    then returns immediately. It blesses the current state (no re-processing):
+    existing chats are recorded as-is, so only files that change *after* this
+    are re-ingested. Makes no API calls.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
+    if "content_hash" in cols:
+        return
+    conn.execute("ALTER TABLE chats ADD COLUMN content_hash TEXT")
+    updates = []
+    for row_id, file_path in conn.execute("SELECT id, file_path FROM chats").fetchall():
+        try:
+            updates.append((file_hash(file_path), row_id))
+        except OSError:
+            pass  # source file gone; leave NULL so a later build re-checks it
+    conn.executemany("UPDATE chats SET content_hash = ? WHERE id = ?", updates)
+    conn.commit()
+    print(f"Backfilled content_hash for {len(updates)} chats.")
+
+
+def stored_hashes(conn):
+    """Map of file_path -> content_hash for every chat already in the DB."""
+    return dict(conn.execute("SELECT file_path, content_hash FROM chats"))
 
 
 def insert_entries(conn, entries):
+    """Insert new chats. entries: iterable of (file_path, result, content_hash)."""
     now = datetime.now(timezone.utc).isoformat()
     conn.executemany(
         """
-        INSERT INTO chats (file_path, raw, cleaned, token_estimate, last_message_epoch, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO chats (file_path, raw, cleaned, token_estimate, last_message_epoch, content_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -154,10 +190,49 @@ def insert_entries(conn, entries):
                 result["cleaned"],
                 estimate_tokens(result["cleaned"]),
                 message_epoch(result["raw"]),
+                content_hash,
                 now,
                 now,
             )
-            for file_path, result in entries
+            for file_path, result, content_hash in entries
+        ],
+    )
+    conn.commit()
+
+
+def update_entries(conn, entries):
+    """Re-ingest changed chats in place. entries: (file_path, result, hash).
+
+    Clears summary/embedding/error (when those columns exist) so process.py
+    re-summarizes and re-embeds the chat, and bumps updated_at so retrieve.py's
+    FTS and embeddings caches rebuild.
+    """
+    entries = list(entries)
+    if not entries:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
+    clear = "".join(
+        f", {c} = NULL" for c in ("summary", "embedding", "error") if c in cols
+    )
+    conn.executemany(
+        f"""
+        UPDATE chats
+        SET raw = ?, cleaned = ?, token_estimate = ?, last_message_epoch = ?,
+            content_hash = ?, updated_at = ?{clear}
+        WHERE file_path = ?
+        """,
+        [
+            (
+                json.dumps(result["raw"]),
+                result["cleaned"],
+                estimate_tokens(result["cleaned"]),
+                message_epoch(result["raw"]),
+                content_hash,
+                now,
+                file_path,
+            )
+            for file_path, result, content_hash in entries
         ],
     )
     conn.commit()
@@ -170,16 +245,29 @@ if __name__ == "__main__":
 
     conn = get_connection()
     backfill_message_epochs(conn)
-    known_paths = existing_file_paths(conn)
-    new_paths = [p for p in json_paths if p not in known_paths]
+    backfill_content_hashes(conn)
 
-    if new_paths:
+    # hash every file on disk and diff against what the DB has stored: unknown
+    # paths are new, known paths whose hash moved are resumed/edited chats
+    disk_hashes = {p: file_hash(p) for p in json_paths}
+    stored = stored_hashes(conn)
+    new_paths = [p for p in json_paths if p not in stored]
+    changed_paths = [
+        p for p in json_paths if p in stored and stored[p] != disk_hashes[p]
+    ]
+
+    to_load = new_paths + changed_paths
+    if to_load:
         with Pool() as pool:
-            results = pool.map(load_and_clean, new_paths)
-        insert_entries(conn, zip(new_paths, results))
+            results = dict(zip(to_load, pool.map(load_and_clean, to_load)))
+        insert_entries(conn, [(p, results[p], disk_hashes[p]) for p in new_paths])
+        update_entries(conn, [(p, results[p], disk_hashes[p]) for p in changed_paths])
 
     conn.close()
 
     runtime = time.time() - start_time
 
-    print(f"Added {len(new_paths)} new chats. Runtime: {runtime:.2f} seconds")
+    print(
+        f"Added {len(new_paths)} new, updated {len(changed_paths)} changed chats. "
+        f"Runtime: {runtime:.2f} seconds"
+    )

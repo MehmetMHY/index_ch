@@ -436,6 +436,16 @@ def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None):
     else:
         ranked = [(cid, None) for cid in fused]
 
+    # tiebreak: within the same rerank grade, show the most recent chat first.
+    # grade stays primary (a lower grade never outranks a higher one); ungraded
+    # results (fast mode / candidates the reranker dropped) keep their hybrid
+    # order. the sort is stable, so equal keys preserve their existing order.
+    ranked.sort(
+        key=lambda item: (1, 0, 0)
+        if item[1] is None
+        else (0, -item[1], -(chat_epoch(meta[item[0]]) or 0))
+    )
+
     usage = {
         "embed_in": embed_in,
         "expand_in": expand_in,

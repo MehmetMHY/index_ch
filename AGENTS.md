@@ -18,7 +18,10 @@ Three scripts, run in order, plus a shared config:
   tunables. Change models or prices here, nowhere else.
 - `build.py` reads chat JSON from `~/.ch/tmp/`, strips auto-generated noise
   (code dumps, file pastes, command output), and stores cleaned text in the
-  database. Incremental: only adds files not already present.
+  database. Incremental via a per-file `content_hash` (SHA-256 of the bytes):
+  new files are inserted, files whose hash changed are re-ingested in place
+  (clearing summary/embedding so process.py redoes just them), unchanged files
+  are skipped.
 - `process.py` summarizes each chat (`gpt-5.4-nano`) and embeds the summary
   (`text-embedding-3-small`), saving both back. Resumable: only touches rows
   missing a summary or embedding.
@@ -69,9 +72,12 @@ cache and rebuilds them automatically when the data changes.
 - Schema changes are done as additive, idempotent migrations that read only
   existing data, never via a full rebuild: `process.py`'s `migrate` adds
   summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
-  populates `last_message_epoch` from the stored `raw`. This is deliberate: the
-  summaries/embeddings cost ~$6-7 to regenerate, so new columns must be
-  backfillable in place without any OpenAI calls.
+  populates `last_message_epoch` from the stored `raw`, and
+  `backfill_content_hashes` adds `content_hash` and blesses each row with its
+  current on-disk hash. This is deliberate: the summaries/embeddings cost ~$6-7
+  to regenerate, so new columns must be backfillable in place without any OpenAI
+  calls (the content-hash backfill in particular must not make everything look
+  "changed", which would re-embed the whole DB).
 - The chat source path `~/.ch/tmp/` is owned by Ch and is read-only for us. Do
   not modify it or write to it.
 
@@ -155,11 +161,13 @@ sample, and do not run the full pipeline unprompted.
   ingest (`message_epoch`); `backfill_message_epochs` populates it for existing
   DBs from the stored `raw` JSON (one-time, idempotent, no API calls) and is
   called at the start of both `build.py` and `retrieve.py`.
-- Caveat, not yet handled: `build.py` is incremental by filename, so a chat that
-  is resumed after ingest keeps its OLD `raw` snapshot in the DB. Its
-  `last_message_epoch` then reflects the last message present at ingest, not the
-  newest on disk. Fixing this needs build.py to re-ingest files whose content
-  grew, which is a separate change.
+- Resumed chats stay current via the `content_hash` diff in `build.py`: when a
+  session gains messages after ingest, its file hash changes, so the next
+  `build.py` re-ingests it (`update_entries`) and clears summary/embedding so
+  `process.py` re-embeds it. So `run.py` self-heals drift. `backfill_content_hashes`
+  blessed the existing rows with their current on-disk hash (one-time, no
+  re-processing), so chats that had already drifted before this feature are not
+  retroactively refreshed until they change again on disk.
 - The `/time` filter is applied at the SEARCH level, not by trimming the final
   results: `allowed_in_range` masks the embeddings matrix so the vector leg
   returns the true top-`POOL` in-range, and `fts_search` fetches a wider window
