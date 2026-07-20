@@ -58,18 +58,25 @@ def is_auto_entry(content):
     return False
 
 
-def load_and_clean(file_path):
-    raw = load_json(file_path)
+def format_messages(messages, skip_noise=True):
+    """Join USER/BOT turns into plain text.
 
+    skip_noise=True drops auto-generated noise (code dumps, file pastes, command
+    output) per is_auto_entry; False keeps everything, for the raw chat view.
+    """
     text = ""
-    for msg in raw["messages"]:
+    for msg in messages:
         user = msg["user"] or ""
         bot = msg["bot"] or ""
-        if is_auto_entry(user) or is_auto_entry(bot):
+        if skip_noise and (is_auto_entry(user) or is_auto_entry(bot)):
             continue
         text = text + "USER: " + user + "\n" + "BOT: " + bot + "\n"
+    return text
 
-    return {"raw": raw, "cleaned": text}
+
+def load_and_clean(file_path):
+    raw = load_json(file_path)
+    return {"raw": raw, "cleaned": format_messages(raw["messages"], skip_noise=True)}
 
 
 def get_connection():

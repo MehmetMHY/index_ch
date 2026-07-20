@@ -7,6 +7,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+# scratch space for retrieve.py's /view command; files are deleted right after use
+TMP_DIR = os.path.join(CACHE_DIR, "tmp")
+os.makedirs(TMP_DIR, exist_ok=True)
+
 # paths
 CHATS_SOURCE_DIR = os.path.join(os.path.expanduser("~"), ".ch/tmp/")
 DB_PATH = os.path.join(CACHE_DIR, "chats.db")

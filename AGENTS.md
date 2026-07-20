@@ -26,7 +26,15 @@ Three scripts, run in order, plus a shared config:
   vector search and FTS5 keyword search, fuses them with Reciprocal Rank Fusion,
   reranks the top candidates with `gpt-5.6-luna` (listwise, structured outputs),
   and prints the top 5, each with a UTC timestamp parsed from the epoch in the
-  chat's filename.
+  chat's filename. It also has `/view`/`/v` and `/copy`/`/c` (fzf-pick one of
+  the last results, or pass a number to skip the picker) and `/help`/`/h`.
+  `/view` writes the summary plus the full raw (unfiltered) transcript to a
+  temp file under `cache/tmp/`, opens it in `$EDITOR` (falls back to `vim`),
+  and deletes the file the moment the editor exits — any in-editor edits/saves
+  are never persisted anywhere. `/copy` copies just the chat's filename
+  (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`/`wl-copy`
+  /`xclip`/`xsel` depending on OS). Requires `fzf` on PATH for the picker;
+  degrades to a message telling the user to pass a number if it's missing.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings
@@ -39,8 +47,9 @@ cache and rebuilds them automatically when the data changes.
 ## Data and storage
 
 - All generated data lives in `cache/` (the database, the `.npz` embeddings
-  cache, SQLite journal/WAL sidecars). It is created automatically by `config.py`
-  and is gitignored. Never commit it.
+  cache, SQLite journal/WAL sidecars, and `cache/tmp/` scratch files for
+  `retrieve.py`'s `/view`). It is created automatically by `config.py` and is
+  gitignored. Never commit it.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
   `cache/chats.db` means a full rebuild and re-processing.
@@ -48,6 +57,9 @@ cache and rebuilds them automatically when the data changes.
   not modify it or write to it.
 
 ## Setup and commands
+
+`retrieve.py`'s `/view` and `/copy` pickers need `fzf` on PATH (not a pip
+package; install separately, e.g. `brew install fzf`).
 
 ```bash
 python3 -m venv env
@@ -109,3 +121,7 @@ sample, and do not run the full pipeline unprompted.
 - `retrieve.py`'s `format_timestamp` extracts the epoch from chat filenames via
   regex (`ch_session_<epoch>.json`). If Ch's filename format changes, the
   timestamp silently disappears from output rather than erroring.
+- `build.py`'s `format_messages(messages, skip_noise=...)` is shared: `skip_noise=True`
+  is the `cleaned` text `load_and_clean` stores, `skip_noise=False` is what
+  `retrieve.py`'s `/view` shows as the raw transcript. Keep noise-filtering
+  logic in this one function rather than duplicating it in `retrieve.py`.

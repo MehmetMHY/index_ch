@@ -3,8 +3,13 @@ import re
 import sys
 import json
 import time
+import shlex
+import shutil
+import platform
+import tempfile
 import itertools
 import threading
+import subprocess
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -14,7 +19,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 
 # reuse the shared db helpers from the build script; all tunables live in config
-from build import get_connection
+from build import get_connection, format_messages
 from config import (
     EMBEDDINGS_CACHE_PATH,
     EMBEDDING_MODEL,
@@ -25,6 +30,7 @@ from config import (
     TOP_K,
     RRF_K,
     PREVIEW_CHARS,
+    TMP_DIR,
     estimate_cost,
 )
 
@@ -358,17 +364,160 @@ def print_results(results, meta, elapsed, usage):
     print(f"({len(results)} results in {elapsed:.2f}s | ~${cost:.6f})")
 
 
+# ---- /view and /copy: act on a picked result --------------------------------
+
+
+def fetch_raw(conn, cid):
+    row = conn.execute("SELECT raw FROM chats WHERE id = ?", (cid,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def build_content(conn, cid, meta):
+    """Render a chat as summary + divider + raw (unfiltered) transcript text."""
+    info = meta[cid]
+    name = os.path.basename(info["file_path"])
+    summary = (info["summary"] or "(no summary)").strip()
+
+    raw = fetch_raw(conn, cid)
+    raw_text = (
+        format_messages(raw["messages"], skip_noise=False)
+        if raw
+        else "(raw content unavailable)"
+    )
+
+    divider = "\n" + "=" * 70 + "\n"
+    return f"# {name}\n\n{summary}\n{divider}\n{raw_text}"
+
+
+def pick_with_fzf(last_results, meta, hint):
+    """Fuzzy-pick one of the last results with fzf. Returns a chat id, or None
+    if fzf is missing or the user cancelled (Esc / Ctrl-C / no match)."""
+    if shutil.which("fzf") is None:
+        print(f"fzf not found on PATH — install it, or use '{hint} <number>'.")
+        return None
+
+    lines = []
+    for i, (cid, grade) in enumerate(last_results, 1):
+        info = meta[cid]
+        name = os.path.basename(info["file_path"])
+        ts = format_timestamp(name)
+        ts_tag = f" ({ts})" if ts else ""
+        lines.append(f"[{i}] {name}{ts_tag} {preview(info['summary'], 80)}")
+
+    proc = subprocess.run(
+        ["fzf", "--prompt=select> "],
+        input="\n".join(lines),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None  # cancelled or no match
+
+    idx = int(re.match(r"\[(\d+)\]", proc.stdout).group(1))
+    return last_results[idx - 1][0]
+
+
+def resolve_pick(args, last_results, meta, hint):
+    """Shared arg parsing for /view and /copy: an explicit index, or fzf."""
+    if not last_results:
+        print("No results yet — run a search first.")
+        return None
+
+    if args:
+        try:
+            idx = int(args[0])
+        except ValueError:
+            print(f"Usage: {hint} [1-{len(last_results)}]")
+            return None
+        if not (1 <= idx <= len(last_results)):
+            print(f"Choose a number between 1 and {len(last_results)}.")
+            return None
+        return last_results[idx - 1][0]
+
+    return pick_with_fzf(last_results, meta, hint)
+
+
+def view_chat(conn, cid, meta):
+    """Write summary + raw chat text to a temp file, open it in an editor, then
+    delete the temp file once the editor exits."""
+    content = build_content(conn, cid, meta)
+    fd, path = tempfile.mkstemp(prefix="chat_", suffix=".md", dir=TMP_DIR)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        editor_cmd = shlex.split(os.environ.get("EDITOR", "vim"))
+        subprocess.run(editor_cmd + [path])
+    finally:
+        os.remove(path)
+
+
+def copy_to_clipboard(text):
+    """Copy text to the system clipboard. Returns True on success."""
+    system = platform.system()
+    if system == "Darwin":
+        cmd = ["pbcopy"]
+    elif system == "Windows":
+        cmd = ["clip"]
+    elif system == "Linux":
+        if shutil.which("wl-copy"):
+            cmd = ["wl-copy"]
+        elif shutil.which("xclip"):
+            cmd = ["xclip", "-selection", "clipboard"]
+        elif shutil.which("xsel"):
+            cmd = ["xsel", "--clipboard", "--input"]
+        else:
+            print("No clipboard tool found — install xclip, xsel, or wl-clipboard.")
+            return False
+    else:
+        print(f"Clipboard copy isn't supported on {system}.")
+        return False
+
+    try:
+        subprocess.run(cmd, input=text, text=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        print(f"Clipboard copy failed: {exc}")
+        return False
+    return True
+
+
+def copy_chat(cid, meta):
+    name = os.path.basename(meta[cid]["file_path"])
+    if copy_to_clipboard(name):
+        print(f"Copied {name} to clipboard.")
+
+
+def handle_view(args, last_results, meta, conn):
+    cid = resolve_pick(args, last_results, meta, "/view")
+    if cid is not None:
+        view_chat(conn, cid, meta)
+
+
+def handle_copy(args, last_results, meta):
+    cid = resolve_pick(args, last_results, meta, "/copy")
+    if cid is not None:
+        copy_chat(cid, meta)
+
+
+HELP_TEXT = """<query>        search your chats
+/view, /v      fuzzy-pick a result, open it in $EDITOR (falls back to vim)
+/view <n>      open result n directly, skipping the fzf picker
+/copy, /c      fuzzy-pick a result, copy its filename to the clipboard
+/copy <n>      copy result n directly, skipping the fzf picker
+:fast          toggle the LLM reranker on/off
+/help, /h      show this list
+quit, exit, :q exit"""
+
+
 if __name__ == "__main__":
     conn = get_connection()
     ensure_fts(conn)
     print("Loading embeddings...")
     ids, mat, meta = load_vectors(conn)
     do_rerank = True
+    last_results = []
     print(
-        f"Ready — {len(ids)} chats indexed.\n"
-        "LLM rerank: ON — every query is reranked (type ':fast' to turn it off "
-        "for quicker, ungraded results).\n"
-        "Type a query, or 'quit' to exit.\n"
+        f"Ready, {len(ids)} chats indexed. Rerank is ON (':fast' toggles it).\n"
+        "Type a query, or '/help' for commands.\n"
     )
 
     while True:
@@ -383,12 +532,24 @@ if __name__ == "__main__":
             break
         if query.lower() == ":fast":
             do_rerank = not do_rerank
-            print(f"Rerank is now {'ON' if do_rerank else 'OFF'}.\n")
+            print(f"Rerank is now {'ON' if do_rerank else 'OFF'}.")
+            continue
+
+        parts = query.split()
+        if parts[0].lower() in ("/help", "/h"):
+            print(HELP_TEXT)
+            continue
+        if parts[0].lower() in ("/view", "/v"):
+            handle_view(parts[1:], last_results, meta, conn)
+            continue
+        if parts[0].lower() in ("/copy", "/c"):
+            handle_copy(parts[1:], last_results, meta)
             continue
 
         start = time.time()
         with Spinner("reranking" if do_rerank else "searching"):
             results, usage = search(conn, ids, mat, meta, query, do_rerank)
         print_results(results, meta, time.time() - start, usage)
+        last_results = results
 
     conn.close()
