@@ -21,22 +21,30 @@ Three scripts, run in order, plus a shared config:
   `GROQ_BASE_URL`). Embeddings must stay on OpenAI: the stored vectors are
   `text-embedding-3-small`, and the query has to embed in the same space, so
   the embedding model/provider cannot change without a full re-embed. Groq has
-  no embedding model anyway.
+  no embedding model anyway. Any replacement rerank/expansion model must support
+  `json_schema` structured outputs (`chat.completions.parse`): Groq's
+  `qwen/qwen3.6-27b` was evaluated and rejected because it 400s on `json_schema`,
+  and as a reasoning model it burned ~5x the output tokens at ~13x the cost.
 - `build.py` reads chat JSON from `~/.ch/tmp/`, strips auto-generated noise
   (code dumps, file pastes, command output), and stores cleaned text in the
   database. Incremental via a per-file `content_hash` (SHA-256 of the bytes):
   new files are inserted, files whose hash changed are re-ingested in place
   (clearing summary/embedding so process.py redoes just them), unchanged files
   are skipped.
-- `process.py` summarizes each chat (`gpt-5.4-nano`) and embeds the summary
-  (`text-embedding-3-small`), saving both back. Resumable: only touches rows
-  missing a summary or embedding.
+- `process.py` summarizes each chat (`gpt-5.4-nano`), condenses that summary
+  into the 1-2 sentence `short_summary` shown in search results (same model,
+  fed the summary not the raw chat, so backfilling it is ~10x cheaper), and
+  embeds the summary (`text-embedding-3-small`). Resumable: `pending_rows`
+  selects rows missing any of the three, and `process_row` skips each step whose
+  column is already filled, so adding a column never re-summarizes or re-embeds
+  what is already paid for. `save` only writes the embedding when that run
+  computed one, so a short-summary-only pass cannot clobber existing vectors.
 - `retrieve.py` is an interactive prompt. Per query it optionally expands the
   query into a few variants (Groq `openai/gpt-oss-20b`, structured output),
   embeds the original plus variants in one batched call (OpenAI
   `text-embedding-3-small`), runs vector search and FTS5 keyword search per
   query, fuses every ranking with Reciprocal Rank Fusion, reranks the top
-  candidates with Groq `openai/gpt-oss-20b` (listwise, structured outputs)
+  candidates with Groq `openai/gpt-oss-120b` (listwise, structured outputs)
   against the ORIGINAL query, and prints the top 5, each with a UTC timestamp
   from the chat's last message (`chat_epoch`). Within an equal rerank grade,
   results are ordered most-recent-first (recency tiebreak). On startup a daemon
@@ -81,7 +89,7 @@ cache and rebuilds them automatically when the data changes.
   `cache/chats.db` means a full rebuild and re-processing.
 - Schema changes are done as additive, idempotent migrations that read only
   existing data, never via a full rebuild: `process.py`'s `migrate` adds
-  summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
+  summary/short_summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
   populates `last_message_epoch` from the stored `raw`, and
   `backfill_content_hashes` adds `content_hash` and blesses each row with its
   current on-disk hash. This is deliberate: the summaries/embeddings cost ~$6-7
@@ -205,6 +213,14 @@ unprompted.
   approximate 30d/365d), or a `(start_epoch, end_epoch)` tuple (absolute custom
   range from the calendar picker). `range_bounds` normalizes the latter two to
   `(lo, hi)`; keep the tuple-vs-str discriminator if you touch this.
+- Result blurbs come from `chat_preview`, which prefers the stored
+  `short_summary` and falls back to `preview()` (first paragraph of the long
+  summary) when it is NULL, so output stays sane mid-backfill. `truncate` cuts
+  on a sentence boundary when one falls late enough in the window, else on a
+  word boundary with trailing connector words (`DANGLING_WORDS`) dropped, so a
+  blurb never trails off as "... best next bet with a...". `short_summary` is
+  display-only: embeddings and FTS still index the long `summary`, so changing
+  it costs nothing in retrieval quality.
 - `build.py`'s `format_messages(messages, skip_noise=...)` is shared: `skip_noise=True`
   is the `cleaned` text `load_and_clean` stores, `skip_noise=False` is what
   `retrieve.py`'s `/view` shows as the raw transcript. Keep noise-filtering

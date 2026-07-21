@@ -144,7 +144,7 @@ class Spinner:
         for ch in itertools.cycle("|/-\\"):
             if self._stop.is_set():
                 break
-            sys.stdout.write(f"\r{ch} {self.message}...")
+            sys.stdout.write(f"\r{ch} {self.message}")
             sys.stdout.flush()
             time.sleep(0.1)
 
@@ -240,11 +240,16 @@ def load_vectors(conn):
     is always read fresh from the db — that part is cheap, no float parsing.
     """
     rows = conn.execute(
-        "SELECT id, file_path, summary, last_message_epoch "
+        "SELECT id, file_path, summary, short_summary, last_message_epoch "
         "FROM chats WHERE embedding IS NOT NULL"
     ).fetchall()
     meta = {
-        r[0]: {"file_path": r[1], "summary": r[2], "last_message_epoch": r[3]}
+        r[0]: {
+            "file_path": r[1],
+            "summary": r[2],
+            "short_summary": r[3],
+            "last_message_epoch": r[4],
+        }
         for r in rows
     }
     signature = _embedding_signature(conn)
@@ -520,6 +525,74 @@ def preview(summary, limit=PREVIEW_CHARS):
     return paragraph[:limit].rsplit(" ", 1)[0].rstrip() + "..."
 
 
+# words that read as unfinished when a truncated blurb ends on them
+DANGLING_WORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "with",
+    "of",
+    "in",
+    "to",
+    "for",
+    "on",
+    "at",
+    "by",
+    "from",
+    "as",
+    "that",
+    "which",
+    "while",
+    "plus",
+    "into",
+    "via",
+    "is",
+    "was",
+    "were",
+    "are",
+    "be",
+    "its",
+    "their",
+    "his",
+    "her",
+    "then",
+}
+
+
+def truncate(text, limit):
+    """Trim text to limit chars, ending on a sentence boundary when there is a
+    reasonable one, else on a word boundary with trailing connector words
+    dropped. Always ends with an ellipsis, so a blurb never stops mid-phrase
+    like 'one final best next bet with a...'.
+    """
+    if len(text) <= limit:
+        return text
+    window = text[:limit]
+    # prefer the last sentence end, but only if it keeps most of the window;
+    # otherwise a blurb opening with a short sentence would be cut to nothing
+    cut = max(window.rfind(". "), window.rfind("! "), window.rfind("? "))
+    if cut >= limit * 0.6:
+        return window[:cut].rstrip(" .!?") + "..."
+
+    words = window.split(" ")[:-1]  # drop the word the limit cut in half
+    while words and words[-1].strip(",;:()").lower() in DANGLING_WORDS:
+        words.pop()
+    return " ".join(words).rstrip(" ,;:(") + "..."
+
+
+def chat_preview(info, limit=PREVIEW_CHARS):
+    """Blurb shown for a result: the stored 1-2 sentence short_summary when it
+    exists, else the first paragraph of the long summary. The fallback keeps
+    output sane for rows process.py has not backfilled yet."""
+    short = " ".join((info.get("short_summary") or "").split())
+    if not short:
+        return preview(info["summary"], limit)
+    return truncate(short, limit)
+
+
 def filename_epoch(name):
     """Return the epoch embedded in a ch_session_<epoch>.json filename, or None."""
     match = re.search(r"(\d{9,})", os.path.basename(name))
@@ -554,7 +627,7 @@ def print_results(results, meta, elapsed, usage):
         ts_tag = f" · {ts}" if ts else ""
         tag = f" · relevance {grade}/3" if grade is not None else ""
         print(f"{i}. {name}{ts_tag}{tag}")
-        print(f"   {preview(info['summary'])}\n")
+        print(f"   {chat_preview(info)}\n")
     if not results:
         print("No matches.\n")
 
@@ -604,7 +677,7 @@ def pick_with_fzf(last_results, meta, hint):
         name = os.path.basename(info["file_path"])
         ts = format_timestamp(chat_epoch(info))
         ts_tag = f" ({ts})" if ts else ""
-        lines.append(f"[{i}] {name}{ts_tag} {preview(info['summary'], 80)}")
+        lines.append(f"[{i}] {name}{ts_tag} {chat_preview(info, 80)}")
 
     proc = subprocess.run(
         ["fzf", "--prompt=select> ", "--cycle"],

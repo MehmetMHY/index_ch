@@ -55,6 +55,17 @@ COMBINE_PROMPT = (
     "preamble, just the summary."
 )
 
+# one-line blurb shown in retrieve.py's results, condensed from the long summary
+# (not the raw chat) so the backfill is cheap. leads with the topic because the
+# long summaries tend to open with boilerplate like "The user asked ...".
+SHORT_SUMMARY_PROMPT = (
+    "Condense this summary of a conversation into one or two plain sentences, "
+    "at most 35 words total, stating what the conversation was about. Lead with "
+    "the concrete topic and the specifics that make it recognizable. Do not "
+    "start with phrases like 'The user asked' or 'This conversation'. No "
+    "markdown, no quotes, no preamble, just the sentences."
+)
+
 # with high concurrency we may occasionally brush a rate limit; let the SDK
 # back off and retry automatically instead of failing the chat. also size the
 # underlying httpx connection pool to the worker count — its default cap of 100
@@ -71,10 +82,12 @@ client = OpenAI(
 
 
 def migrate(conn):
-    """Add the summary, embedding and error columns if they are not there yet."""
+    """Add the summary, short_summary, embedding and error columns if missing."""
     cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
     if "summary" not in cols:
         conn.execute("ALTER TABLE chats ADD COLUMN summary TEXT")
+    if "short_summary" not in cols:
+        conn.execute("ALTER TABLE chats ADD COLUMN short_summary TEXT")
     if "embedding" not in cols:
         conn.execute("ALTER TABLE chats ADD COLUMN embedding TEXT")
     if "error" not in cols:
@@ -83,14 +96,20 @@ def migrate(conn):
 
 
 def pending_rows(conn, include_errors=False):
-    """Rows that still need a summary or embedding, skipping empty chats.
+    """Rows that still need a summary, short summary or embedding, skipping empty
+    chats.
+
+    Returns the existing summary and short_summary alongside the cleaned text so
+    process_row only redoes the missing piece: a row that just needs a short
+    summary must not pay to re-summarize the whole chat again.
 
     By default rows that already failed (error set) are skipped so a deterministic
     failure is not retried forever; pass include_errors=True to retry them.
     """
     query = """
-        SELECT id, cleaned FROM chats
-        WHERE (summary IS NULL OR embedding IS NULL)
+        SELECT id, cleaned, summary, short_summary, embedding IS NOT NULL
+        FROM chats
+        WHERE (summary IS NULL OR short_summary IS NULL OR embedding IS NULL)
           AND TRIM(cleaned) != ''
     """
     if not include_errors:
@@ -140,33 +159,72 @@ def summarize(text):
     return summary, in_tok + ci, out_tok + co
 
 
+def shorten(summary):
+    """Condense a long summary into the 1-2 sentence blurb shown in results."""
+    return _summarize_once(summary, SHORT_SUMMARY_PROMPT)
+
+
 def embed(text):
     resp = client.embeddings.create(model=EMBEDDING_MODEL, input=text)
     return resp.data[0].embedding, resp.usage
 
 
 def process_row(row):
-    """Summarize then embed a single chat. Runs inside a worker thread."""
-    row_id, cleaned = row
-    summary, summary_in, summary_out = summarize(cleaned)
-    embedding, embed_usage = embed(summary)
+    """Fill in whatever a chat is missing (summary, short summary, embedding).
+
+    Each step is skipped when the column is already populated, so backfilling a
+    new column costs only that column: re-running this never re-summarizes or
+    re-embeds work that is already paid for. Runs inside a worker thread.
+    """
+    row_id, cleaned, summary, short_summary, has_embedding = row
+    summary_in = summary_out = short_in = short_out = embed_in = 0
+
+    if summary is None:
+        summary, summary_in, summary_out = summarize(cleaned)
+    if short_summary is None:
+        short_summary, short_in, short_out = shorten(summary)
+
+    embedding_json = None
+    if not has_embedding:
+        embedding, embed_usage = embed(summary)
+        embedding_json = json.dumps(embedding)
+        embed_in = embed_usage.prompt_tokens
+
     return {
         "id": row_id,
         "summary": summary,
-        "embedding_json": json.dumps(embedding),
+        "short_summary": short_summary,
+        "embedding_json": embedding_json,
         "summary_in": summary_in,
         "summary_out": summary_out,
-        "embed_in": embed_usage.prompt_tokens,
+        "short_in": short_in,
+        "short_out": short_out,
+        "embed_in": embed_in,
     }
 
 
 def save(conn, result):
+    """Persist a processed row. The embedding is only written when this run
+    computed one, so a short-summary-only pass leaves the existing vector alone."""
     now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "UPDATE chats SET summary = ?, embedding = ?, error = NULL, updated_at = ? "
-        "WHERE id = ?",
-        (result["summary"], result["embedding_json"], now, result["id"]),
-    )
+    if result["embedding_json"] is not None:
+        conn.execute(
+            "UPDATE chats SET summary = ?, short_summary = ?, embedding = ?, "
+            "error = NULL, updated_at = ? WHERE id = ?",
+            (
+                result["summary"],
+                result["short_summary"],
+                result["embedding_json"],
+                now,
+                result["id"],
+            ),
+        )
+    else:
+        conn.execute(
+            "UPDATE chats SET summary = ?, short_summary = ?, error = NULL, "
+            "updated_at = ? WHERE id = ?",
+            (result["summary"], result["short_summary"], now, result["id"]),
+        )
 
 
 def mark_error(conn, row_id, exc):
@@ -188,21 +246,23 @@ def fmt_duration(seconds):
     return f"{s}s"
 
 
-def print_summary(done, errors, runtime, tok_summary_in, tok_summary_out, tok_embed_in):
-    cost = estimate_cost(
-        SUMMARY_MODEL, tok_summary_in, tok_summary_out
-    ) + estimate_cost(EMBEDDING_MODEL, tok_embed_in)
+def print_summary(done, errors, runtime, tok):
+    cost = (
+        estimate_cost(SUMMARY_MODEL, tok["summary_in"], tok["summary_out"])
+        + estimate_cost(SUMMARY_MODEL, tok["short_in"], tok["short_out"])
+        + estimate_cost(EMBEDDING_MODEL, tok["embed_in"])
+    )
+    total = sum(tok.values())
 
     print("=" * 48)
     print(f"Processed {done} chats ({errors} errors) in {fmt_duration(runtime)}")
     print("-" * 48)
-    print(f"  summary input tokens : {tok_summary_in:>12,}")
-    print(f"  summary output tokens: {tok_summary_out:>12,}")
-    print(f"  embedding tokens     : {tok_embed_in:>12,}")
-    print(
-        f"  total tokens         : "
-        f"{tok_summary_in + tok_summary_out + tok_embed_in:>12,}"
-    )
+    print(f"  summary input tokens : {tok['summary_in']:>12,}")
+    print(f"  summary output tokens: {tok['summary_out']:>12,}")
+    print(f"  short input tokens   : {tok['short_in']:>12,}")
+    print(f"  short output tokens  : {tok['short_out']:>12,}")
+    print(f"  embedding tokens     : {tok['embed_in']:>12,}")
+    print(f"  total tokens         : {total:>12,}")
     print(f"  estimated cost       : ${cost:>11.4f}")
     print("=" * 48)
 
@@ -225,9 +285,13 @@ if __name__ == "__main__":
 
     done = 0
     errors = 0
-    tok_summary_in = 0
-    tok_summary_out = 0
-    tok_embed_in = 0
+    tok = {
+        "summary_in": 0,
+        "summary_out": 0,
+        "short_in": 0,
+        "short_out": 0,
+        "embed_in": 0,
+    }
     interrupted = False
 
     # not using a `with` block on purpose: its __exit__ blocks on shutdown(wait=True)
@@ -241,9 +305,8 @@ if __name__ == "__main__":
                 result = future.result()
                 save(conn, result)
                 done += 1
-                tok_summary_in += result["summary_in"]
-                tok_summary_out += result["summary_out"]
-                tok_embed_in += result["embed_in"]
+                for key in tok:
+                    tok[key] += result[key]
             except Exception as exc:
                 errors += 1
                 mark_error(conn, row_id, exc)
@@ -277,7 +340,7 @@ if __name__ == "__main__":
         conn.close()
 
     runtime = time.time() - start_time
-    print_summary(done, errors, runtime, tok_summary_in, tok_summary_out, tok_embed_in)
+    print_summary(done, errors, runtime, tok)
 
     if interrupted:
         print("Stopped early. Re-run to finish the remaining chats.")

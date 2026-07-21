@@ -23,9 +23,9 @@ EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
 SUMMARY_MODEL = "gpt-5.4-nano"  # process.py (OpenAI)
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI, defines the vector space
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"  # needs GROQ_API_KEY
-RERANK_MODEL = "openai/gpt-oss-20b"  # Groq
+RERANK_MODEL = "openai/gpt-oss-120b"  # Groq, stronger ranking quality
 RERANK_EFFORT = "low"
-QUERY_EXPANSION_MODEL = "openai/gpt-oss-20b"  # Groq
+QUERY_EXPANSION_MODEL = "openai/gpt-oss-20b"  # Groq, a simple rewrite
 QUERY_EXPANSION_EFFORT = "low"
 
 # Pricing per model as (input, output) in USD per 1M tokens. Used only for the
@@ -35,7 +35,8 @@ QUERY_EXPANSION_EFFORT = "low"
 PRICING = {
     SUMMARY_MODEL: (0.20, 1.25),
     EMBEDDING_MODEL: (0.02, 0.0),
-    "openai/gpt-oss-20b": (0.075, 0.30),  # Groq rerank + query expansion
+    "openai/gpt-oss-120b": (0.15, 0.60),  # Groq rerank
+    "openai/gpt-oss-20b": (0.075, 0.30),  # Groq query expansion
 }
 
 
@@ -55,7 +56,9 @@ POOL = 30
 RERANK_POOL = 10
 TOP_K = 5
 RRF_K = 60
-PREVIEW_CHARS = 200
+# display width for a result's blurb; sized so ~90% of short_summary values
+# print in full rather than being cut with an ellipsis
+PREVIEW_CHARS = 400
 # number of extra query variants the LLM generates before fusion (0 disables)
 NUM_EXPANSIONS = 3
 # selectable rolling time windows for the /time filter, in seconds from now.
