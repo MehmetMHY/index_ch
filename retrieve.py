@@ -23,6 +23,7 @@ from build import get_connection, format_messages, backfill_message_epochs
 from config import (
     EMBEDDINGS_CACHE_PATH,
     EMBEDDING_MODEL,
+    GROQ_BASE_URL,
     RERANK_MODEL,
     RERANK_EFFORT,
     QUERY_EXPANSION_MODEL,
@@ -41,7 +42,35 @@ from config import (
 # interactive UTC calendar picker for the /time "custom" absolute range
 from input_time import pick_time_range
 
+# OpenAI for embeddings (the stored vectors are text-embedding-3-small, so the
+# query must embed in the same space). Groq for the two retrieval LLM steps
+# (rerank, query expansion) via its OpenAI-compatible endpoint, for speed.
 client = OpenAI(max_retries=3, http_client=httpx.Client(timeout=30))
+groq_client = OpenAI(
+    base_url=GROQ_BASE_URL,
+    api_key=os.environ.get("GROQ_API_KEY"),
+    max_retries=3,
+    http_client=httpx.Client(timeout=30),
+)
+
+
+def warm_connections():
+    """Best-effort: open the HTTPS connections to OpenAI and Groq up front so the
+    first real query does not pay the TLS/handshake cold-start (~1s). Runs in a
+    background thread at startup; any failure is ignored (the query path retries).
+    """
+    try:
+        client.embeddings.create(model=EMBEDDING_MODEL, input="warmup")
+    except Exception:
+        pass
+    try:
+        groq_client.chat.completions.create(
+            model=RERANK_MODEL,
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=1,
+        )
+    except Exception:
+        pass
 
 
 # ---- reranker structured output schema -------------------------------------
@@ -292,16 +321,16 @@ def expand_query(query, n=NUM_EXPANSIONS):
     if n <= 0:
         return [], 0, 0
     try:
-        resp = client.responses.parse(
+        resp = groq_client.chat.completions.parse(
             model=QUERY_EXPANSION_MODEL,
-            reasoning={"effort": QUERY_EXPANSION_EFFORT},
-            input=[
+            reasoning_effort=QUERY_EXPANSION_EFFORT,
+            messages=[
                 {"role": "system", "content": QUERY_EXPANSION_SYSTEM.format(n=n)},
                 {"role": "user", "content": query},
             ],
-            text_format=ExpandedQueries,
+            response_format=ExpandedQueries,
         )
-        raw = resp.output_parsed.queries
+        raw = resp.choices[0].message.parsed.queries
     except Exception as exc:
         print(f"(query expansion failed, using original query only: {exc})")
         return [], 0, 0
@@ -314,7 +343,7 @@ def expand_query(query, n=NUM_EXPANSIONS):
         if q and key not in seen:
             variants.append(q)
             seen.add(key)
-    return variants[:n], resp.usage.input_tokens, resp.usage.output_tokens
+    return variants[:n], resp.usage.prompt_tokens, resp.usage.completion_tokens
 
 
 # ---- reranking -------------------------------------------------------------
@@ -332,10 +361,10 @@ def rerank(query, candidate_ids, meta):
         f"<document id={d['id']!r}>\n{d['text']}\n</document>" for d in docs
     )
     try:
-        resp = client.responses.parse(
+        resp = groq_client.chat.completions.parse(
             model=RERANK_MODEL,
-            reasoning={"effort": RERANK_EFFORT},
-            input=[
+            reasoning_effort=RERANK_EFFORT,
+            messages=[
                 {"role": "system", "content": RERANK_SYSTEM},
                 {
                     "role": "user",
@@ -343,9 +372,9 @@ def rerank(query, candidate_ids, meta):
                     f"<documents>\n{formatted}\n</documents>",
                 },
             ],
-            text_format=RerankResult,
+            response_format=RerankResult,
         )
-        parsed = resp.output_parsed
+        parsed = resp.choices[0].message.parsed
     except Exception as exc:
         print(f"(rerank failed, falling back to hybrid order: {exc})")
         return [(cid, None) for cid in candidate_ids], 0, 0
@@ -365,7 +394,7 @@ def rerank(query, candidate_ids, meta):
     for cid in candidate_ids:
         if cid not in seen:
             ordered.append((cid, None))
-    return ordered, resp.usage.input_tokens, resp.usage.output_tokens
+    return ordered, resp.usage.prompt_tokens, resp.usage.completion_tokens
 
 
 # ---- top level search ------------------------------------------------------
@@ -441,9 +470,11 @@ def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None):
     # results (fast mode / candidates the reranker dropped) keep their hybrid
     # order. the sort is stable, so equal keys preserve their existing order.
     ranked.sort(
-        key=lambda item: (1, 0, 0)
-        if item[1] is None
-        else (0, -item[1], -(chat_epoch(meta[item[0]]) or 0))
+        key=lambda item: (
+            (1, 0, 0)
+            if item[1] is None
+            else (0, -item[1], -(chat_epoch(meta[item[0]]) or 0))
+        )
     )
 
     usage = {
@@ -804,6 +835,10 @@ quit, exit, :q exit"""
 
 
 if __name__ == "__main__":
+    # warm the API connections while the DB work below runs, so the first query
+    # is not slowed by cold-start handshakes
+    threading.Thread(target=warm_connections, daemon=True).start()
+
     conn = get_connection()
     backfill_message_epochs(conn)  # one-time; no-op once the column exists
     ensure_fts(conn)

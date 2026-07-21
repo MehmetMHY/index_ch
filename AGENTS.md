@@ -15,7 +15,13 @@ search with LLM reranking.
 Three scripts, run in order, plus a shared config:
 
 - `config.py` is the single source of truth for paths, models, pricing, and all
-  tunables. Change models or prices here, nowhere else.
+  tunables. Change models or prices here, nowhere else. Two providers: OpenAI
+  for embeddings and `process.py` (summaries), Groq for `retrieve.py`'s rerank
+  and query expansion (reached via its OpenAI-compatible endpoint,
+  `GROQ_BASE_URL`). Embeddings must stay on OpenAI: the stored vectors are
+  `text-embedding-3-small`, and the query has to embed in the same space, so
+  the embedding model/provider cannot change without a full re-embed. Groq has
+  no embedding model anyway.
 - `build.py` reads chat JSON from `~/.ch/tmp/`, strips auto-generated noise
   (code dumps, file pastes, command output), and stores cleaned text in the
   database. Incremental via a per-file `content_hash` (SHA-256 of the bytes):
@@ -26,12 +32,16 @@ Three scripts, run in order, plus a shared config:
   (`text-embedding-3-small`), saving both back. Resumable: only touches rows
   missing a summary or embedding.
 - `retrieve.py` is an interactive prompt. Per query it optionally expands the
-  query into a few variants (`gpt-5.4-nano`, structured output, reasoning off),
-  embeds the original plus variants in one batched call, runs vector search and
-  FTS5 keyword search per query, fuses every ranking with Reciprocal Rank
-  Fusion, reranks the top candidates with `gpt-5.6-luna` (listwise, structured
-  outputs) against the ORIGINAL query, and prints the top 5, each with a UTC
-  timestamp from the chat's last message (`chat_epoch`). `:fast` toggles the
+  query into a few variants (Groq `openai/gpt-oss-20b`, structured output),
+  embeds the original plus variants in one batched call (OpenAI
+  `text-embedding-3-small`), runs vector search and FTS5 keyword search per
+  query, fuses every ranking with Reciprocal Rank Fusion, reranks the top
+  candidates with Groq `openai/gpt-oss-20b` (listwise, structured outputs)
+  against the ORIGINAL query, and prints the top 5, each with a UTC timestamp
+  from the chat's last message (`chat_epoch`). Within an equal rerank grade,
+  results are ordered most-recent-first (recency tiebreak). On startup a daemon
+  thread (`warm_connections`) opens the OpenAI + Groq HTTPS connections so the
+  first query does not pay cold-start latency. `:fast` toggles the
   reranker, `:expand` toggles query expansion, and `/time`/`/t` sets a persistent
   time filter (rolling `1d`/`3d`/`1w`/`1m`/`1y`, `all` to clear, or `custom` which
   opens the `input_time.py` curses calendar for an absolute start/end range;
@@ -91,11 +101,18 @@ fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt   # httpx, numpy, openai, pydantic
-export OPENAI_API_KEY="..."        # required by process.py and retrieve.py
+export OPENAI_API_KEY="..."        # embeddings (process.py + retrieve.py)
+export GROQ_API_KEY="..."          # retrieve.py rerank + query expansion
 python3 build.py                   # ingest new chats
 python3 process.py                 # summarize + embed (calls OpenAI, costs money)
 python3 retrieve.py                # interactive search
 ```
+
+`retrieve.py` reaches Groq with the same `openai` SDK, just a second client
+pointed at `GROQ_BASE_URL` (see `groq_client`). If `GROQ_API_KEY` is unset,
+rerank and expansion fail and degrade gracefully (hybrid order / original query
+only) rather than erroring, but retrieval quality drops, so treat it as
+required.
 
 Or run all three in order with `python3 run.py`.
 
@@ -111,11 +128,13 @@ mutate or corrupt data.
 
 ## Cost awareness
 
-`process.py` and `retrieve.py` make paid OpenAI calls. A full `process.py`
+`process.py` makes paid OpenAI calls; `retrieve.py` makes a paid OpenAI
+embedding call plus paid Groq rerank/expansion calls. A full `process.py`
 backfill of ~5600 chats costs roughly $6-7; each `retrieve.py` query costs a
-fraction of a cent. Do not trigger a full re-process or bulk API calls without a
-clear reason. When testing API-touching code, prefer a single call or a small
-sample, and do not run the full pipeline unprompted.
+fraction of a cent (a few tenths, mostly the Groq rerank). Do not trigger a full
+re-process or bulk API calls without a clear reason. When testing API-touching
+code, prefer a single call or a small sample, and do not run the full pipeline
+unprompted.
 
 ## Conventions
 
@@ -164,10 +183,18 @@ sample, and do not run the full pipeline unprompted.
 - Resumed chats stay current via the `content_hash` diff in `build.py`: when a
   session gains messages after ingest, its file hash changes, so the next
   `build.py` re-ingests it (`update_entries`) and clears summary/embedding so
-  `process.py` re-embeds it. So `run.py` self-heals drift. `backfill_content_hashes`
+  `process.py` re-embeds it. So `run.py` self-heals drift, but only on the next
+  build (the DB is a snapshot as of the last run, not live). `backfill_content_hashes`
   blessed the existing rows with their current on-disk hash (one-time, no
   re-processing), so chats that had already drifted before this feature are not
   retroactively refreshed until they change again on disk.
+- Because Ch may be writing a session file while `build.py` reads it,
+  `load_and_clean` reads the bytes once, hashes and parses that same buffer
+  (so the stored `content_hash` always matches the stored content), and returns
+  `None` on any read/parse failure instead of raising. The `build.py` main loop
+  skips those Nones and files that error while hashing, so one mid-write or
+  deleted file cannot crash the whole build; they are re-ingested on a later
+  build once fully written. Keep this fail-soft behavior.
 - The `/time` filter is applied at the SEARCH level, not by trimming the final
   results: `allowed_in_range` masks the embeddings matrix so the vector leg
   returns the true top-`POOL` in-range, and `fts_search` fetches a wider window

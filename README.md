@@ -16,13 +16,13 @@ The project is three scripts, run in order:
 
 2. `process.py` summarizes each chat with `gpt-5.4-nano` and embeds the summary with `text-embedding-3-small`, saving both back to the database. It only processes chats that are not done yet, so it is resumable.
 
-3. `retrieve.py` is an interactive search prompt. It rewrites your query into a few alternative phrasings with `gpt-5.4-nano` (query expansion, to widen recall), embeds the original plus the variants in a single batched call, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates with `gpt-5.6-luna`, and shows the top 5 matches, each with a UTC timestamp from the chat's last message.
+3. `retrieve.py` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps (expansion and rerank) run on Groq (`openai/gpt-oss-20b`) for speed; embeddings stay on OpenAI.
 
 The database and a small embeddings cache are stored in a `cache/` directory next to the scripts, created automatically, so you can run them from any directory.
 
 ## Setup
 
-Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, `/run`, and `/time` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
+Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/keys) (`retrieve.py`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, `/run`, and `/time` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
 
 Create a virtual environment and install dependencies:
 
@@ -30,7 +30,8 @@ Create a virtual environment and install dependencies:
 python3 -m venv env
 source env/bin/activate
 pip3 install -r requirements.txt
-export OPENAI_API_KEY="your-key-here"
+export OPENAI_API_KEY="your-openai-key-here"
+export GROQ_API_KEY="your-groq-key-here"
 ```
 
 ## Usage

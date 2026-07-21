@@ -28,11 +28,6 @@ def file_paths(dir_path):
     ]
 
 
-def load_json(file_path):
-    with open(file_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 def estimate_tokens(text):
     if not text:
         return 0
@@ -101,8 +96,23 @@ def message_epoch(raw):
 
 
 def load_and_clean(file_path):
-    raw = load_json(file_path)
-    return {"raw": raw, "cleaned": format_messages(raw["messages"], skip_noise=True)}
+    """Read, hash, and clean one chat file from a single read, so the stored hash
+    always matches the stored content. Returns {raw, cleaned, content_hash}, or
+    None if the file can't be read or parsed (e.g. caught mid-write by Ch, or
+    deleted) so one bad file is skipped instead of crashing the whole build."""
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+        raw = json.loads(data)
+        cleaned = format_messages(raw["messages"], skip_noise=True)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"skipping {os.path.basename(file_path)}: {exc}")
+        return None
+    return {
+        "raw": raw,
+        "cleaned": cleaned,
+        "content_hash": hashlib.sha256(data).hexdigest(),
+    }
 
 
 def get_connection():
@@ -248,26 +258,55 @@ if __name__ == "__main__":
     backfill_content_hashes(conn)
 
     # hash every file on disk and diff against what the DB has stored: unknown
-    # paths are new, known paths whose hash moved are resumed/edited chats
-    disk_hashes = {p: file_hash(p) for p in json_paths}
+    # paths are new, known paths whose hash moved are resumed/edited chats. skip
+    # any file that vanishes mid-scan; a later build picks it up
+    disk_hashes = {}
+    for p in json_paths:
+        try:
+            disk_hashes[p] = file_hash(p)
+        except OSError as exc:
+            print(f"skipping {os.path.basename(p)}: {exc}")
+
     stored = stored_hashes(conn)
-    new_paths = [p for p in json_paths if p not in stored]
+    new_paths = [p for p in disk_hashes if p not in stored]
     changed_paths = [
-        p for p in json_paths if p in stored and stored[p] != disk_hashes[p]
+        p for p in disk_hashes if p in stored and stored[p] != disk_hashes[p]
     ]
 
+    # load only new/changed files; load_and_clean returns None for any it could
+    # not read or parse (e.g. caught mid-write), so those are skipped and left for
+    # a later build. the stored hash comes from load_and_clean's own read, so it
+    # always matches the content actually written.
     to_load = new_paths + changed_paths
+    results = {}
     if to_load:
         with Pool() as pool:
-            results = dict(zip(to_load, pool.map(load_and_clean, to_load)))
-        insert_entries(conn, [(p, results[p], disk_hashes[p]) for p in new_paths])
-        update_entries(conn, [(p, results[p], disk_hashes[p]) for p in changed_paths])
+            loaded = pool.map(load_and_clean, to_load)
+        results = {p: r for p, r in zip(to_load, loaded) if r is not None}
+        insert_entries(
+            conn,
+            [
+                (p, results[p], results[p]["content_hash"])
+                for p in new_paths
+                if p in results
+            ],
+        )
+        update_entries(
+            conn,
+            [
+                (p, results[p], results[p]["content_hash"])
+                for p in changed_paths
+                if p in results
+            ],
+        )
 
     conn.close()
 
     runtime = time.time() - start_time
-
-    print(
-        f"Added {len(new_paths)} new, updated {len(changed_paths)} changed chats. "
-        f"Runtime: {runtime:.2f} seconds"
-    )
+    added = sum(1 for p in new_paths if p in results)
+    updated = sum(1 for p in changed_paths if p in results)
+    skipped = len(to_load) - len(results)
+    summary = f"Added {added} new, updated {updated} changed chats"
+    if skipped:
+        summary += f" ({skipped} skipped: unreadable or mid-write)"
+    print(f"{summary}. Runtime: {runtime:.2f} seconds")

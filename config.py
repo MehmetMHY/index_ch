@@ -16,24 +16,26 @@ CHATS_SOURCE_DIR = os.path.join(os.path.expanduser("~"), ".ch/tmp/")
 DB_PATH = os.path.join(CACHE_DIR, "chats.db")
 EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
 
-# models
-SUMMARY_MODEL = "gpt-5.4-nano"
-EMBEDDING_MODEL = "text-embedding-3-small"
-RERANK_MODEL = "gpt-5.6-luna"
+# models. build.py/process.py stay on OpenAI (the stored embeddings define the
+# vector space and cannot change provider). retrieve.py's two LLM steps (rerank,
+# query expansion) run on Groq for speed and cost; it reaches Groq through the
+# OpenAI-compatible endpoint below. embeddings always stay on OpenAI.
+SUMMARY_MODEL = "gpt-5.4-nano"  # process.py (OpenAI)
+EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI, defines the vector space
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"  # needs GROQ_API_KEY
+RERANK_MODEL = "openai/gpt-oss-20b"  # Groq
 RERANK_EFFORT = "low"
-# query expansion reuses the cheap summary model (same pricing key); a simple
-# rewrite needs no reasoning, so effort is off to keep it fast
-QUERY_EXPANSION_MODEL = SUMMARY_MODEL
-QUERY_EXPANSION_EFFORT = "none"
+QUERY_EXPANSION_MODEL = "openai/gpt-oss-20b"  # Groq
+QUERY_EXPANSION_EFFORT = "low"
 
 # Pricing per model as (input, output) in USD per 1M tokens. Used only for the
 # cost estimates the scripts print; update these if a model or its price changes.
 # Embeddings have no output tokens, so their output price is 0.
-# Current prices: https://openai.com/business/pricing/
+# OpenAI: https://openai.com/business/pricing/  Groq: https://groq.com/pricing
 PRICING = {
     SUMMARY_MODEL: (0.20, 1.25),
     EMBEDDING_MODEL: (0.02, 0.0),
-    RERANK_MODEL: (1.00, 6.00),
+    "openai/gpt-oss-20b": (0.075, 0.30),  # Groq rerank + query expansion
 }
 
 
@@ -50,7 +52,7 @@ DEFAULT_WORKERS = 64
 
 # retrieval
 POOL = 30
-RERANK_POOL = 15
+RERANK_POOL = 10
 TOP_K = 5
 RRF_K = 60
 PREVIEW_CHARS = 200
