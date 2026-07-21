@@ -22,7 +22,7 @@ The database and a small embeddings cache are stored in a `cache/` directory nex
 
 ## Setup
 
-Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/keys) (`retrieve.py`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, `/run`, and `/time` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
+Requires Python 3.11+, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/keys) (`retrieve.py`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, `/run`, `/dump`, and `/time` commands to pick a result), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` to resume a session).
 
 Create a virtual environment and install dependencies:
 
@@ -73,6 +73,7 @@ At the `query>` prompt:
 - Type `/view` or `/v` to fuzzy-pick one of the latest results with fzf and open its summary plus full raw transcript in `$EDITOR` (falls back to `vim`). Add a number to skip the picker, e.g. `/v 2`.
 - Type `/copy` or `/c` to fuzzy-pick one of the latest results and copy its chat filename (`ch_session_<epoch>.json`) to the clipboard. Add a number to skip the picker, e.g. `/c 2`.
 - Type `/run` or `/r` to fuzzy-pick one of the latest results and resume it in [Ch](https://github.com/MehmetMHY/ch) (`ch -f <file>`). Add a number to skip the picker, e.g. `/r 2`. Requires `ch` on PATH.
+- Type `/dump` or `/d` to fuzzy-pick (multi-select) one or more of the latest results and dump their full JSON to a single file at `~/Downloads/index_ch_dump_<epoch>.json` (a `{filename: content}` dict). Pass numbers to skip the picker, e.g. `/dump 1 3 5`. Unreadable files are skipped with a warning.
 - Type `/time` or `/t` to fzf-pick a time window: a rolling window (past 1 day, 3 days, week, month, year), all time, or `Custom` to open an interactive UTC calendar and pick an exact start/end range. Set it directly with `/time 1d`, `/time 3d`, `/time 1w`, `/time 1m`, `/time 1y`, `/time custom` (opens the calendar), or `/time all` to clear it. The filter persists across queries (shown in the prompt as `query [1w]>` or `query [custom]>`) and scopes every search to chats within that window, based on the time of each chat's last message.
 - Type `:fast` to toggle the LLM reranker off for quicker, keyword-and-vector-only results.
 - Type `:expand` to toggle LLM query expansion off (skips the query-rewrite step; slightly faster and cheaper, but narrower recall).

@@ -54,8 +54,10 @@ Three scripts, run in order, plus a shared config:
   time filter (rolling `1d`/`3d`/`1w`/`1m`/`1y`, `all` to clear, or `custom` which
   opens the `input_time.py` curses calendar for an absolute start/end range;
   fzf picker or a direct token) that scopes every subsequent search.
-  It also has `/view`/`/v`, `/copy`/`/c`, and `/run`/`/r` (fzf-pick one of the
-  last results, or pass a number to skip the picker) and `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
+  It also has `/view`/`/v`, `/copy`/`/c`, `/run`/`/r`, and `/dump`/`/d` (fzf-pick
+  one of the last results, or pass a number to skip the picker; `/dump` accepts
+  multiple numbers like `/dump 1 3 5` and uses fzf's `-m` multi-select mode) and
+  `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
   transcript to a temp file under `cache/tmp/`, opens it in `$EDITOR` (falls
   back to `vim`), and deletes the file the moment the editor exits — any
   in-editor edits/saves are never persisted anywhere. `/copy` copies just the
@@ -63,8 +65,11 @@ Three scripts, run in order, plus a shared config:
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
   `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
   resume that session inside Ch, handing over the terminal until Ch exits.
-  Requires `fzf` on PATH for the picker (degrades to a message telling the
-  user to pass a number if it's missing) and `ch` on PATH for `/run`.
+  `/dump` reads each picked chat's JSON from disk and writes them as a single
+  `{filename: content}` dict to `~/Downloads/index_ch_dump_<epoch>.json`,
+  skipping unreadable files with a printed warning. Requires `fzf` on PATH for
+  the picker (degrades to a message telling the user to pass a number if it's
+  missing) and `ch` on PATH for `/run`.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings
@@ -101,9 +106,9 @@ cache and rebuilds them automatically when the data changes.
 
 ## Setup and commands
 
-`retrieve.py`'s `/view`, `/copy`, `/run`, and `/time` pickers need `fzf` on
-PATH (not a pip package; install separately, e.g. `brew install fzf`). Both
-fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
+`retrieve.py`'s `/view`, `/copy`, `/run`, `/dump`, and `/time` pickers need
+`fzf` on PATH (not a pip package; install separately, e.g. `brew install fzf`).
+All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 
 ```bash
 python3 -m venv env

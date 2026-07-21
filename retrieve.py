@@ -692,6 +692,38 @@ def pick_with_fzf(last_results, meta, hint):
     return last_results[idx - 1][0]
 
 
+def pick_many_with_fzf(last_results, meta, hint):
+    """Fuzzy-pick one or more of the last results with fzf (multi-select).
+    Returns a list of chat ids (empty if fzf is missing or the user cancelled)."""
+    if shutil.which("fzf") is None:
+        print(f"fzf not found on PATH — install it, or use '{hint} <number>...'.")
+        return []
+
+    lines = []
+    for i, (cid, grade) in enumerate(last_results, 1):
+        info = meta[cid]
+        name = os.path.basename(info["file_path"])
+        ts = format_timestamp(chat_epoch(info))
+        ts_tag = f" ({ts})" if ts else ""
+        lines.append(f"[{i}] {name}{ts_tag} {chat_preview(info, 80)}")
+
+    proc = subprocess.run(
+        ["fzf", "-m", "--prompt=select> ", "--cycle"],
+        input="\n".join(lines),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+
+    cids = []
+    for line in proc.stdout.splitlines():
+        m = re.match(r"\[(\d+)\]", line)
+        if m:
+            cids.append(last_results[int(m.group(1)) - 1][0])
+    return cids
+
+
 def resolve_pick(args, last_results, meta, hint):
     """Shared arg parsing for /view and /copy: an explicit index, or fzf."""
     if not last_results:
@@ -710,6 +742,36 @@ def resolve_pick(args, last_results, meta, hint):
         return last_results[idx - 1][0]
 
     return pick_with_fzf(last_results, meta, hint)
+
+
+def resolve_picks(args, last_results, meta, hint):
+    """Arg parsing for /dump: one or more explicit indices, or fzf multi-select.
+    Returns a de-duplicated list of chat ids (order preserved), or [] on any
+    usage error or cancel."""
+    if not last_results:
+        print("No results yet — run a search first.")
+        return []
+
+    if args:
+        cids = []
+        for a in args:
+            try:
+                idx = int(a)
+            except ValueError:
+                print(f"Usage: {hint} [1-{len(last_results)}]...")
+                return []
+            if not (1 <= idx <= len(last_results)):
+                print(f"Choose numbers between 1 and {len(last_results)}.")
+                return []
+            cids.append(last_results[idx - 1][0])
+        seen, out = set(), []
+        for cid in cids:
+            if cid not in seen:
+                seen.add(cid)
+                out.append(cid)
+        return out
+
+    return pick_many_with_fzf(last_results, meta, hint)
 
 
 def view_chat(conn, cid, meta):
@@ -787,6 +849,47 @@ def handle_run(args, last_results, meta):
     cid = resolve_pick(args, last_results, meta, "/run")
     if cid is not None:
         run_chat(cid, meta)
+
+
+# ---- /dump: export picked chats to a JSON file ------------------------------
+
+
+def handle_dump(args, last_results, meta):
+    """Pick one or more results (by index list or fzf multi), read each chat's
+    JSON from disk, and save them as {filename: content} to ~/Downloads."""
+    cids = resolve_picks(args, last_results, meta, "/dump")
+    if not cids:
+        return
+
+    dump = {}
+    skipped = []
+    for cid in cids:
+        path = meta[cid]["file_path"]
+        name = os.path.basename(path)
+        try:
+            with open(path, "rb") as f:
+                buf = f.read()
+            dump[name] = json.loads(buf)
+        except (OSError, json.JSONDecodeError) as exc:
+            skipped.append((name, exc))
+
+    if not dump:
+        print("Nothing dumped — all selected files failed to read.")
+        for name, exc in skipped:
+            print(f"  {name}: {exc}")
+        return
+
+    out_dir = os.path.expanduser("~/Downloads")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"index_ch_dump_{int(time.time())}.json")
+    with open(out_path, "w") as f:
+        json.dump(dump, f, indent=2)
+
+    print(f"Saved {len(dump)} chat(s) to {out_path}.")
+    if skipped:
+        print(f"Skipped {len(skipped)} unreadable file(s):")
+        for name, exc in skipped:
+            print(f"  {name}: {exc}")
 
 
 # ---- /time: scope searches to a time window ---------------------------------
@@ -899,6 +1002,8 @@ HELP_TEXT = """<query>        search your chats
 /copy <n>      copy result n directly, skipping the fzf picker
 /run, /r       fuzzy-pick a result, resume it in ch (ch -f <file>)
 /run <n>       resume result n directly, skipping the fzf picker
+/dump, /d      pick one or more results, dump their JSON to ~/Downloads
+/dump <n> ...  dump result n (and more) directly, skipping the fzf picker
 /time, /t      pick a time window to scope searches to
 /time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
 :fast          toggle the LLM reranker on/off
@@ -963,6 +1068,9 @@ if __name__ == "__main__":
             continue
         if parts[0].lower() in ("/run", "/r"):
             handle_run(parts[1:], last_results, meta)
+            continue
+        if parts[0].lower() in ("/dump", "/d"):
+            handle_dump(parts[1:], last_results, meta)
             continue
         if parts[0].lower() in ("/time", "/t"):
             time_filter = handle_time(parts[1:], time_filter)
