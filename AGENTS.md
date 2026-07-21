@@ -65,9 +65,17 @@ Three scripts, run in order, plus a shared config:
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
   `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
   resume that session inside Ch, handing over the terminal until Ch exits.
-  `/dump` reads each picked chat's JSON from disk and writes them as a single
-  `{filename: content}` dict to `~/Downloads/index_ch_dump_<epoch>.json`,
-  skipping unreadable files with a printed warning. Requires `fzf` on PATH for
+  `/dump` merges the picked chats' messages into a single ch-resumable log at
+  `~/Downloads/index_ch_dump_<chat_count>_<epoch>.json`: chats are ordered
+  oldest to newest (by `chat_epoch`), each chat's own messages stay together
+  and in order (no interleaving), and every message is tagged with
+  `source_file` (its original `ch_*.json` name). Root `platform`/`model`/
+  `base_url`/`timestamp` are taken from the newest chat and `source_files`
+  lists all merged filenames in order — `ch -f` reads those root fields (not
+  per-message ones) to restore the session it resumes, and dropping them
+  breaks it with a "platform not found" error; extra keys (root or
+  per-message) are safely ignored by `ch`'s permissive JSON unmarshal.
+  Skips unreadable files with a printed warning. Requires `fzf` on PATH for
   the picker (degrades to a message telling the user to pass a number if it's
   missing) and `ch` on PATH for `/run`.
 

@@ -855,13 +855,24 @@ def handle_run(args, last_results, meta):
 
 
 def handle_dump(args, last_results, meta):
-    """Pick one or more results (by index list or fzf multi), read each chat's
-    JSON from disk, and save them as {filename: content} to ~/Downloads."""
+    """Pick one or more results (by index list or fzf multi), and merge their
+    messages into a single ch-resumable log, saved to ~/Downloads. Chats are
+    ordered oldest to newest (by chat_epoch); each chat's own messages stay
+    together and in their original order, so the merged log reads as one
+    continuous conversation rather than an interleave. Each message is tagged
+    with source_file (its original ch_*.json name). Root platform/model/
+    base_url are taken from the newest chat, since `ch -f` uses those root
+    fields (not per-message ones) to restore the session it resumes into —
+    dropping them entirely breaks `ch -f` with a "platform not found" error."""
     cids = resolve_picks(args, last_results, meta, "/dump")
     if not cids:
         return
 
-    dump = {}
+    cids = sorted(cids, key=lambda cid: chat_epoch(meta[cid]) or 0)
+
+    messages = []
+    source_files = []
+    newest_raw = None
     skipped = []
     for cid in cids:
         path = meta[cid]["file_path"]
@@ -869,23 +880,40 @@ def handle_dump(args, last_results, meta):
         try:
             with open(path, "rb") as f:
                 buf = f.read()
-            dump[name] = json.loads(buf)
-        except (OSError, json.JSONDecodeError) as exc:
+            raw = json.loads(buf)
+            for msg in raw["messages"]:
+                messages.append({**msg, "source_file": name})
+            source_files.append(name)
+            newest_raw = raw  # cids is oldest->newest, so the last one wins
+        except (OSError, json.JSONDecodeError, KeyError) as exc:
             skipped.append((name, exc))
 
-    if not dump:
+    if not messages:
         print("Nothing dumped — all selected files failed to read.")
         for name, exc in skipped:
             print(f"  {name}: {exc}")
         return
 
+    merged = {
+        "timestamp": newest_raw.get("timestamp"),
+        "platform": newest_raw.get("platform"),
+        "model": newest_raw.get("model"),
+        "base_url": newest_raw.get("base_url"),
+        "source_files": source_files,
+        "messages": messages,
+    }
+
     out_dir = os.path.expanduser("~/Downloads")
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"index_ch_dump_{int(time.time())}.json")
+    out_path = os.path.join(
+        out_dir, f"index_ch_dump_{len(source_files)}_{int(time.time())}.json"
+    )
     with open(out_path, "w") as f:
-        json.dump(dump, f, indent=2)
+        json.dump(merged, f, indent=2)
 
-    print(f"Saved {len(dump)} chat(s) to {out_path}.")
+    print(
+        f"Saved {len(source_files)} chat(s) ({len(messages)} messages) to {out_path}."
+    )
     if skipped:
         print(f"Skipped {len(skipped)} unreadable file(s):")
         for name, exc in skipped:
@@ -1002,7 +1030,7 @@ HELP_TEXT = """<query>        search your chats
 /copy <n>      copy result n directly, skipping the fzf picker
 /run, /r       fuzzy-pick a result, resume it in ch (ch -f <file>)
 /run <n>       resume result n directly, skipping the fzf picker
-/dump, /d      pick one or more results, dump their JSON to ~/Downloads
+/dump, /d      pick one or more results, merge their messages into one log
 /dump <n> ...  dump result n (and more) directly, skipping the fzf picker
 /time, /t      pick a time window to scope searches to
 /time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
