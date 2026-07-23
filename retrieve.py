@@ -14,9 +14,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 
-# ---- spinner ----------------------------------------------------------------
-
-
+# spinner
 class Spinner:
     """Animated one-line spinner that erases itself; no-op when not a terminal."""
 
@@ -112,9 +110,7 @@ def warm_connections():
         pass
 
 
-# ---- reranker structured output schema -------------------------------------
-
-
+# reranker structured output schema
 class RankedDocument(BaseModel):
     document_id: str
     relevance: Annotated[int, Field(ge=0, le=3)]
@@ -148,9 +144,7 @@ Requirements:
 """.strip()
 
 
-# ---- query expansion schema ------------------------------------------------
-
-
+# query expansion schema
 class ExpandedQueries(BaseModel):
     queries: list[str]
 
@@ -168,9 +162,7 @@ Do not answer the query. Do not number them. Return only the alternative queries
 """.strip()
 
 
-# ---- full text search (FTS5) -----------------------------------------------
-
-
+# full text search (FTS5)
 def ensure_fts(conn):
     """Create the FTS5 index if missing, and rebuild it when chats have changed.
 
@@ -224,9 +216,7 @@ def fts_search(conn, query, n, allowed=None):
     return [r[0] for r in rows]
 
 
-# ---- vector search ---------------------------------------------------------
-
-
+# vector search
 def _embedding_signature(conn):
     count, latest = conn.execute(
         "SELECT count(*), COALESCE(MAX(updated_at), '') FROM chats "
@@ -242,7 +232,7 @@ def load_vectors(conn):
     cached to a .npz keyed by a signature (embedding count + latest updated_at).
     Later launches load it in well under a second; the cache rebuilds itself
     whenever process.py adds or changes embeddings. Metadata (file_path, summary)
-    is always read fresh from the db — that part is cheap, no float parsing.
+    is always read fresh from the db - that part is cheap, no float parsing.
     """
     rows = conn.execute(
         "SELECT id, file_path, summary, short_summary, last_message_epoch "
@@ -306,9 +296,7 @@ def vector_search(ids, mat, query_vec, n):
     return [int(ids[i]) for i in top]
 
 
-# ---- fusion ----------------------------------------------------------------
-
-
+# fusion
 def rrf_fuse(rankings, k=RRF_K):
     """Merge several ranked id lists via Reciprocal Rank Fusion."""
     scores = {}
@@ -318,9 +306,7 @@ def rrf_fuse(rankings, k=RRF_K):
     return sorted(scores, key=lambda d: -scores[d])
 
 
-# ---- query expansion -------------------------------------------------------
-
-
+# query expansion
 def expand_query(query, n=NUM_EXPANSIONS):
     """Rewrite the query into n alternative phrasings to widen recall.
 
@@ -356,9 +342,7 @@ def expand_query(query, n=NUM_EXPANSIONS):
     return variants[:n], resp.usage.prompt_tokens, resp.usage.completion_tokens
 
 
-# ---- reranking -------------------------------------------------------------
-
-
+# reranking
 def rerank(query, candidate_ids, meta):
     """Listwise LLM rerank. Returns ([(id, grade)], in_tokens, out_tokens).
 
@@ -407,9 +391,7 @@ def rerank(query, candidate_ids, meta):
     return ordered, resp.usage.prompt_tokens, resp.usage.completion_tokens
 
 
-# ---- top level search ------------------------------------------------------
-
-
+# top level search
 def range_bounds(time_filter):
     """Return (lo_epoch, hi_epoch) for the active filter; hi None means no upper
     bound. A TIME_RANGES key is a rolling window ending now (computed live per
@@ -444,7 +426,7 @@ def allowed_in_range(ids, meta, time_filter):
     return f_ids, mask, set(int(i) for i in f_ids)
 
 
-def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None):
+def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None, top_k=TOP_K):
     # optionally rewrite the query into a few variants, then embed the original
     # plus all variants in one batched call (expansion adds an LLM call but no
     # extra embedding round trips). vector + keyword search each query and fuse
@@ -471,7 +453,10 @@ def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None):
 
     rerank_in = rerank_out = 0
     if do_rerank and fused:
-        ranked, rerank_in, rerank_out = rerank(query, fused[:RERANK_POOL], meta)
+        # rerank at least as many candidates as the caller wants back, so a
+        # /len above the default RERANK_POOL still returns graded results
+        rerank_n = max(RERANK_POOL, top_k)
+        ranked, rerank_in, rerank_out = rerank(query, fused[:rerank_n], meta)
     else:
         ranked = [(cid, None) for cid in fused]
 
@@ -494,7 +479,7 @@ def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None):
         "rerank_in": rerank_in,
         "rerank_out": rerank_out,
     }
-    return ranked[:TOP_K], usage
+    return ranked[:top_k], usage
 
 
 def preview(summary, limit=PREVIEW_CHARS):
@@ -644,9 +629,7 @@ def print_results(results, meta, elapsed, usage):
     print(f"({len(results)} results in {elapsed:.2f}s | ~${cost:.6f})")
 
 
-# ---- /view and /copy: act on a picked result --------------------------------
-
-
+# /view and /copy: act on a picked result
 def fetch_raw(conn, cid):
     row = conn.execute("SELECT raw FROM chats WHERE id = ?", (cid,)).fetchone()
     return json.loads(row[0]) if row else None
@@ -673,7 +656,7 @@ def pick_with_fzf(last_results, meta, hint):
     """Fuzzy-pick one of the last results with fzf. Returns a chat id, or None
     if fzf is missing or the user cancelled (Esc / Ctrl-C / no match)."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH — install it, or use '{hint} <number>'.")
+        print(f"fzf not found on PATH - install it, or use '{hint} <number>'.")
         return None
 
     lines = []
@@ -701,7 +684,7 @@ def pick_many_with_fzf(last_results, meta, hint):
     """Fuzzy-pick one or more of the last results with fzf (multi-select).
     Returns a list of chat ids (empty if fzf is missing or the user cancelled)."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH — install it, or use '{hint} <number>...'.")
+        print(f"fzf not found on PATH - install it, or use '{hint} <number>...'.")
         return []
 
     lines = []
@@ -732,7 +715,7 @@ def pick_many_with_fzf(last_results, meta, hint):
 def resolve_pick(args, last_results, meta, hint):
     """Shared arg parsing for /view and /copy: an explicit index, or fzf."""
     if not last_results:
-        print("No results yet — run a search first.")
+        print("No results yet - run a search first.")
         return None
 
     if args:
@@ -754,7 +737,7 @@ def resolve_picks(args, last_results, meta, hint):
     Returns a de-duplicated list of chat ids (order preserved), or [] on any
     usage error or cancel."""
     if not last_results:
-        print("No results yet — run a search first.")
+        print("No results yet - run a search first.")
         return []
 
     if args:
@@ -808,7 +791,7 @@ def copy_to_clipboard(text):
         elif shutil.which("xsel"):
             cmd = ["xsel", "--clipboard", "--input"]
         else:
-            print("No clipboard tool found — install xclip, xsel, or wl-clipboard.")
+            print("No clipboard tool found - install xclip, xsel, or wl-clipboard.")
             return False
     else:
         print(f"Clipboard copy isn't supported on {system}.")
@@ -831,7 +814,7 @@ def copy_chat(cid, meta):
 def run_chat(cid, meta):
     """Hand the terminal over to `ch -f <name>` to resume the session in Ch."""
     if shutil.which("ch") is None:
-        print("ch not found on PATH — https://github.com/MehmetMHY/ch")
+        print("ch not found on PATH - https://github.com/MehmetMHY/ch")
         return
     name = os.path.basename(meta[cid]["file_path"])
     print(f"Opening {name} in ch...")
@@ -856,9 +839,7 @@ def handle_run(args, last_results, meta):
         run_chat(cid, meta)
 
 
-# ---- /dump: export picked chats to a JSON file ------------------------------
-
-
+# /dump: export picked chats to a JSON file
 def handle_dump(args, last_results, meta):
     """Pick one or more results (by index list or fzf multi), and merge their
     messages into a single ch-resumable log, saved to ~/Downloads. Chats are
@@ -867,7 +848,7 @@ def handle_dump(args, last_results, meta):
     continuous conversation rather than an interleave. Each message is tagged
     with source_file (its original ch_*.json name). Root platform/model/
     base_url are taken from the newest chat, since `ch -f` uses those root
-    fields (not per-message ones) to restore the session it resumes into —
+    fields (not per-message ones) to restore the session it resumes into -
     dropping them entirely breaks `ch -f` with a "platform not found" error."""
     cids = resolve_picks(args, last_results, meta, "/dump")
     if not cids:
@@ -894,7 +875,7 @@ def handle_dump(args, last_results, meta):
             skipped.append((name, exc))
 
     if not messages:
-        print("Nothing dumped — all selected files failed to read.")
+        print("Nothing dumped - all selected files failed to read.")
         for name, exc in skipped:
             print(f"  {name}: {exc}")
         return
@@ -925,8 +906,7 @@ def handle_dump(args, last_results, meta):
             print(f"  {name}: {exc}")
 
 
-# ---- /time: scope searches to a time window ---------------------------------
-
+# /time: scope searches to a time window
 TIME_LABELS = {
     "1d": "past 1 day",
     "3d": "past 3 days",
@@ -973,7 +953,7 @@ def pick_time_with_fzf():
     """fzf-pick a time window. Returns (action, value) like parse_time_token,
     plus 'cancel' when fzf is missing or the pick was cancelled."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH — install it, or use '{TIME_USAGE}'.")
+        print(f"fzf not found on PATH - install it, or use '{TIME_USAGE}'.")
         return "cancel", None
 
     # ordered (value, label); None = all time, "custom" opens the calendar picker
@@ -1028,10 +1008,37 @@ def handle_time(args, current):
     return value
 
 
+# /len: how many results to show per search
+
+RESULT_LEN_MIN = 1
+RESULT_LEN_MAX = 25
+LEN_USAGE = f"/len <{RESULT_LEN_MIN}-{RESULT_LEN_MAX}>"
+
+
+def handle_len(args, current):
+    """Return the (possibly unchanged) result count after a /len command."""
+    if not args:
+        print(f"Showing {current} result{'s' if current != 1 else ''}. Usage: {LEN_USAGE}")
+        return current
+
+    try:
+        n = int(args[0])
+    except ValueError:
+        print(f"Usage: {LEN_USAGE}")
+        return current
+    if not (RESULT_LEN_MIN <= n <= RESULT_LEN_MAX):
+        print(f"Usage: {LEN_USAGE}")
+        return current
+
+    print(f"Result count set to {n}.")
+    return n
+
+
 HELP_TEXT = """\033[4mStatus\033[0m
 rerank: {rerank}
 expansion: {expand}
 time: {time_filter}
+results: {result_len}
 \033[4mOptions\033[0m
 <query>        search your chats
 /view, /v      fuzzy-pick a result, open it in $EDITOR
@@ -1044,17 +1051,20 @@ time: {time_filter}
 /dump <n> ...  dump result n (and more) directly
 /time, /t      pick a time window to scope searches to
 /time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
+/len, /l       show the current result count
+/len <n>       set how many results to show (1-25)
 :fast          toggle the LLM reranker on/off
 :expand        toggle LLM query expansion on/off
 /help, /h      show this list
 quit, exit, :q exit"""
 
 
-def format_help(do_rerank, do_expand, time_filter):
+def format_help(do_rerank, do_expand, time_filter, result_len):
     return HELP_TEXT.format(
         rerank="on" if do_rerank else "off",
         expand="on" if do_expand else "off",
         time_filter=time_filter_desc(time_filter),
+        result_len=result_len,
     )
 
 
@@ -1071,6 +1081,7 @@ if __name__ == "__main__":
     do_rerank = True
     do_expand = NUM_EXPANSIONS > 0
     time_filter = None
+    result_len = TOP_K
     last_results = []
     n = len(ids)
     print(f"Loaded {n:,} indexed chat{'s' if n != 1 else ''}")
@@ -1102,7 +1113,7 @@ if __name__ == "__main__":
 
         parts = query.split()
         if parts[0].lower() in ("/help", "/h"):
-            print(format_help(do_rerank, do_expand, time_filter))
+            print(format_help(do_rerank, do_expand, time_filter, result_len))
             continue
         if parts[0].lower() in ("/view", "/v"):
             handle_view(parts[1:], last_results, meta, conn)
@@ -1119,11 +1130,14 @@ if __name__ == "__main__":
         if parts[0].lower() in ("/time", "/t"):
             time_filter = handle_time(parts[1:], time_filter)
             continue
+        if parts[0].lower() in ("/len", "/l"):
+            result_len = handle_len(parts[1:], result_len)
+            continue
 
         start = time.time()
         with Spinner("reranking" if do_rerank else "searching"):
             results, usage = search(
-                conn, ids, mat, meta, query, do_rerank, do_expand, time_filter
+                conn, ids, mat, meta, query, do_rerank, do_expand, time_filter, result_len
             )
         print_results(results, meta, time.time() - start, usage)
         last_results = results

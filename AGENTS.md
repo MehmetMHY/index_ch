@@ -53,7 +53,13 @@ Three scripts, run in order, plus a shared config:
   reranker, `:expand` toggles query expansion, and `/time`/`/t` sets a persistent
   time filter (rolling `1d`/`3d`/`1w`/`1m`/`1y`, `all` to clear, or `custom` which
   opens the `input_time.py` curses calendar for an absolute start/end range;
-  fzf picker or a direct token) that scopes every subsequent search.
+  fzf picker or a direct token) that scopes every subsequent search. `/len`/`/l`
+  sets how many results are shown per search (`1`-`25`, default `5`, from
+  `config.TOP_K`); with no argument it prints the current count, and anything
+  non-numeric or out of range prints a usage message and leaves it unchanged.
+  When raised above `RERANK_POOL`, `search` reranks `max(RERANK_POOL, top_k)`
+  candidates instead of the fixed pool, so results beyond the default pool
+  size still come back graded rather than falling back to hybrid order.
   It also has `/view`/`/v`, `/copy`/`/c`, `/run`/`/r`, and `/dump`/`/d` (fzf-pick
   one of the last results, or pass a number to skip the picker; `/dump` accepts
   multiple numbers like `/dump 1 3 5` and uses fzf's `-m` multi-select mode) and
