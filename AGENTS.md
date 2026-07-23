@@ -71,19 +71,32 @@ Three scripts, run in order, plus a shared config:
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
   `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
   resume that session inside Ch, handing over the terminal until Ch exits.
-  `/dump` merges the picked chats' messages into a single ch-resumable log at
-  `~/Downloads/index_ch_dump_<chat_count>_<epoch>.json`: chats are ordered
-  oldest to newest (by `chat_epoch`), each chat's own messages stay together
-  and in order (no interleaving), and every message is tagged with
-  `source_file` (its original `ch_*.json` name). Root `platform`/`model`/
-  `base_url`/`timestamp` are taken from the newest chat and `source_files`
-  lists all merged filenames in order — `ch -f` reads those root fields (not
-  per-message ones) to restore the session it resumes, and dropping them
-  breaks it with a "platform not found" error; extra keys (root or
-  per-message) are safely ignored by `ch`'s permissive JSON unmarshal.
-  Skips unreadable files with a printed warning. Requires `fzf` on PATH for
-  the picker (degrades to a message telling the user to pass a number if it's
-  missing) and `ch` on PATH for `/run`.
+  `/dump` merges the picked chats' messages into a single ch-resumable log:
+  chats are ordered oldest to newest (by `chat_epoch`), each chat's own
+  messages stay together and in order (no interleaving), and every message is
+  tagged with `source_file` (its original `ch_*.json` name). Root `platform`/
+  `model`/`base_url`/`timestamp` are taken from the newest chat and
+  `source_files` lists all merged filenames in order — `ch -f` reads those root
+  fields (not per-message ones) to restore the session it resumes, and dropping
+  them breaks it with a "platform not found" error; extra keys (root or
+  per-message) are safely ignored by `ch`'s permissive JSON unmarshal. After
+  selecting, a second fzf menu (`pick_dump_action`, `DUMP_ACTIONS`) chooses the
+  destination: `Save to $HOME/Downloads/` writes
+  `~/Downloads/index_ch_dump_<chat_count>_<epoch>.json`; `Load into Ch
+(Temporary)` writes the log to `cache/tmp/` and resumes it via
+  `ch -f <full path>` (Ch's `-f` accepts an absolute path, not just a bare
+  filename), deleting the temp file when Ch exits; `Load in Ch & save to
+Downloads` does the same but moves the temp file to `~/Downloads` on exit
+  instead of deleting it; `Exit/Cancel` does nothing. The temp
+  write/resume/cleanup runs in a `try/finally` so the `cache/tmp/` file is
+  never orphaned, even on Ctrl-C. `unique_path` appends `_<n>` before the
+  extension if a `~/Downloads` target name already exists, so a save never
+  silently overwrites. The destination menu requires `fzf` (prints an error and
+  aborts the dump if missing, even when the chats were picked by number), and
+  the two "Load" options require `ch` on PATH. Skips unreadable files with a
+  printed warning. The chat picker itself requires `fzf` (degrades to a message
+  telling the user to pass a number if it's missing); `/run` requires `ch` on
+  PATH.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings

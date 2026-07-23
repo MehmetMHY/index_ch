@@ -426,7 +426,9 @@ def allowed_in_range(ids, meta, time_filter):
     return f_ids, mask, set(int(i) for i in f_ids)
 
 
-def search(conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None, top_k=TOP_K):
+def search(
+    conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None, top_k=TOP_K
+):
     # optionally rewrite the query into a few variants, then embed the original
     # plus all variants in one batched call (expansion adds an LLM call but no
     # extra embedding round trips). vector + keyword search each query and fuse
@@ -626,7 +628,7 @@ def print_results(results, meta, elapsed, usage):
         + estimate_cost(QUERY_EXPANSION_MODEL, usage["expand_in"], usage["expand_out"])
         + estimate_cost(RERANK_MODEL, usage["rerank_in"], usage["rerank_out"])
     )
-    print(f"({len(results)} results in {elapsed:.2f}s | ~${cost:.6f})")
+    print(f"[{len(results)} results in {elapsed:.2f}s | ~${cost:.6f}]")
 
 
 # /view and /copy: act on a picked result
@@ -839,21 +841,19 @@ def handle_run(args, last_results, meta):
         run_chat(cid, meta)
 
 
-# /dump: export picked chats to a JSON file
-def handle_dump(args, last_results, meta):
-    """Pick one or more results (by index list or fzf multi), and merge their
-    messages into a single ch-resumable log, saved to ~/Downloads. Chats are
-    ordered oldest to newest (by chat_epoch); each chat's own messages stay
-    together and in their original order, so the merged log reads as one
-    continuous conversation rather than an interleave. Each message is tagged
-    with source_file (its original ch_*.json name). Root platform/model/
-    base_url are taken from the newest chat, since `ch -f` uses those root
-    fields (not per-message ones) to restore the session it resumes into -
-    dropping them entirely breaks `ch -f` with a "platform not found" error."""
-    cids = resolve_picks(args, last_results, meta, "/dump")
-    if not cids:
-        return
+# /dump: merge picked chats, then save to ~/Downloads and/or resume in ch
+def build_dump(cids, meta):
+    """Merge the picked chats into a single ch-resumable dict. Chats are ordered
+    oldest to newest (by chat_epoch); each chat's own messages stay together and
+    in their original order, so the merged log reads as one continuous
+    conversation rather than an interleave. Each message is tagged with
+    source_file (its original ch_*.json name). Root platform/model/base_url are
+    taken from the newest chat, since `ch -f` uses those root fields (not
+    per-message ones) to restore the session it resumes into - dropping them
+    entirely breaks `ch -f` with a "platform not found" error.
 
+    Returns (merged, skipped) or None if every selected file failed to read.
+    """
     cids = sorted(cids, key=lambda cid: chat_epoch(meta[cid]) or 0)
 
     messages = []
@@ -876,9 +876,8 @@ def handle_dump(args, last_results, meta):
 
     if not messages:
         print("Nothing dumped - all selected files failed to read.")
-        for name, exc in skipped:
-            print(f"  {name}: {exc}")
-        return
+        report_skipped(skipped)
+        return None
 
     merged = {
         "timestamp": newest_raw.get("timestamp"),
@@ -888,22 +887,120 @@ def handle_dump(args, last_results, meta):
         "source_files": source_files,
         "messages": messages,
     }
+    return merged, skipped
 
-    out_dir = os.path.expanduser("~/Downloads")
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(
-        out_dir, f"index_ch_dump_{len(source_files)}_{int(time.time())}.json"
-    )
-    with open(out_path, "w") as f:
-        json.dump(merged, f, indent=2)
 
-    print(
-        f"Saved {len(source_files)} chat(s) ({len(messages)} messages) to {out_path}."
-    )
+def report_skipped(skipped):
     if skipped:
         print(f"Skipped {len(skipped)} unreadable file(s):")
         for name, exc in skipped:
             print(f"  {name}: {exc}")
+
+
+def unique_path(path):
+    """Return path, or path with _<n> before the extension if it already exists,
+    so a save never silently overwrites an existing dump."""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    i = 1
+    while os.path.exists(f"{base}_{i}{ext}"):
+        i += 1
+    return f"{base}_{i}{ext}"
+
+
+# what to do with a merged dump, in menu order
+DUMP_ACTIONS = [
+    ("Save to $HOME/Downloads/", "downloads"),
+    ("Load into Ch (Temporary)", "load"),
+    ("Load in Ch & save to Downloads", "load_keep"),
+    ("Exit/Cancel", "cancel"),
+]
+
+
+def pick_dump_action():
+    """fzf-pick what to do with the merged dump. Returns one of 'downloads',
+    'load', 'load_keep', or 'cancel' (also 'cancel' if fzf is missing)."""
+    if shutil.which("fzf") is None:
+        print("fzf not found on PATH - install it to use /dump.")
+        return "cancel"
+
+    label_to_action = {label: action for label, action in DUMP_ACTIONS}
+    proc = subprocess.run(
+        ["fzf", "--prompt=dump> ", "--cycle"],
+        input="\n".join(label for label, _ in DUMP_ACTIONS),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return "cancel"
+    return label_to_action.get(proc.stdout.strip(), "cancel")
+
+
+def save_dump_to_downloads(merged, filename, skipped):
+    out_dir = os.path.expanduser("~/Downloads")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = unique_path(os.path.join(out_dir, filename))
+    with open(out_path, "w") as f:
+        json.dump(merged, f, indent=2)
+    n = len(merged["source_files"])
+    print(f"Saved {n} chat(s) ({len(merged['messages'])} messages) to {out_path}.")
+    report_skipped(skipped)
+
+
+def load_dump_in_ch(merged, filename, keep, skipped):
+    """Write the merged dump to cache/tmp, resume it in ch, then delete it once
+    ch exits - or, when keep is True, move it to ~/Downloads instead. The
+    try/finally guarantees the temp file is never orphaned, even on Ctrl-C."""
+    if shutil.which("ch") is None:
+        print("ch not found on PATH - https://github.com/MehmetMHY/ch")
+        return
+
+    tmp_path = os.path.join(TMP_DIR, filename)
+    with open(tmp_path, "w") as f:
+        json.dump(merged, f, indent=2)
+
+    n = len(merged["source_files"])
+    print(f"Opening merged dump of {n} chat(s) in ch...")
+    try:
+        subprocess.run(["ch", "-f", tmp_path])
+    finally:
+        if not os.path.exists(tmp_path):
+            pass  # ch moved/consumed it (unexpected) - nothing to clean up
+        elif keep:
+            out_dir = os.path.expanduser("~/Downloads")
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = unique_path(os.path.join(out_dir, filename))
+            shutil.move(tmp_path, out_path)
+            print(f"Saved merged dump to {out_path}.")
+        else:
+            os.remove(tmp_path)
+    report_skipped(skipped)
+
+
+def handle_dump(args, last_results, meta):
+    """Pick one or more results (by index list or fzf multi), merge them into a
+    single ch-resumable log, then fzf-pick a destination: save to ~/Downloads,
+    resume it in ch (temp file, deleted on exit), resume it and keep a copy in
+    ~/Downloads, or cancel."""
+    cids = resolve_picks(args, last_results, meta, "/dump")
+    if not cids:
+        return
+
+    built = build_dump(cids, meta)
+    if built is None:
+        return
+    merged, skipped = built
+
+    action = pick_dump_action()
+    if action == "cancel":
+        return
+
+    filename = f"index_ch_dump_{len(merged['source_files'])}_{int(time.time())}.json"
+    if action == "downloads":
+        save_dump_to_downloads(merged, filename, skipped)
+    else:  # "load" or "load_keep"
+        load_dump_in_ch(merged, filename, action == "load_keep", skipped)
 
 
 # /time: scope searches to a time window
@@ -1018,7 +1115,9 @@ LEN_USAGE = f"/len <{RESULT_LEN_MIN}-{RESULT_LEN_MAX}>"
 def handle_len(args, current):
     """Return the (possibly unchanged) result count after a /len command."""
     if not args:
-        print(f"Showing {current} result{'s' if current != 1 else ''}. Usage: {LEN_USAGE}")
+        print(
+            f"Showing {current} result{'s' if current != 1 else ''}. Usage: {LEN_USAGE}"
+        )
         return current
 
     try:
@@ -1089,11 +1188,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            prompt = (
-                f"[{time_filter_label(time_filter)}]> "
-                if time_filter
-                else "> "
-            )
+            prompt = f"[{time_filter_label(time_filter)}]> " if time_filter else "> "
             query = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
@@ -1137,7 +1232,15 @@ if __name__ == "__main__":
         start = time.time()
         with Spinner("reranking" if do_rerank else "searching"):
             results, usage = search(
-                conn, ids, mat, meta, query, do_rerank, do_expand, time_filter, result_len
+                conn,
+                ids,
+                mat,
+                meta,
+                query,
+                do_rerank,
+                do_expand,
+                time_filter,
+                result_len,
             )
         print_results(results, meta, time.time() - start, usage)
         last_results = results
