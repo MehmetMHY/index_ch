@@ -115,10 +115,18 @@ cache and rebuilds them automatically when the data changes.
 (`pick_time_range() -> (start, end) | None`) that `retrieve.py` imports for the
 `/time custom` absolute range. It has no project dependencies of its own.
 
-`run.py` (at the repo root) is a convenience wrapper that runs all three `src/`
-scripts in order. It uses `env/bin/python3` when a virtual environment exists
-(`env/` stays at the root), otherwise falls back to `python3`. It exits
-non-zero on the first script failure.
+`run.py` (at the repo root) is a convenience wrapper around the `src/` scripts.
+`pick_action` fzf-picks one of `Just Retrieve` (`retrieve.py` only),
+`Update Cache` (`build.py` + `process.py`), `Update & Retrieve` (all three), or
+`Exit` (does nothing); cancelling the picker (Esc/Ctrl-C) also does nothing.
+There is no flag-based bypass - unlike `retrieve.py`'s pickers, which degrade
+to "pass a number" when `fzf` is missing, `run.py` has no non-interactive
+alternative to fall back to, so it degrades by running the full pipeline
+(`Update & Retrieve`) instead, with a printed note - this keeps headless
+callers (e.g. cron) working the way bare `python3 run.py` always did, before
+this picker existed. It uses `env/bin/python3` when a virtual environment
+exists (`env/` stays at the root), otherwise falls back to `python3`, and
+exits non-zero on the first script failure.
 
 ## Data and storage
 
@@ -165,7 +173,8 @@ rerank and expansion fail and degrade gracefully (hybrid order / original query
 only) rather than erroring, but retrieval quality drops, so treat it as
 required.
 
-Or run all three in order with `python3 run.py`.
+Or use the fzf-driven entrypoint, `python3 run.py` (see the `run.py` section
+above).
 
 Useful env vars for `process.py`:
 

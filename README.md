@@ -44,13 +44,13 @@ python3 src/process.py
 python3 src/retrieve.py
 ```
 
-Or run all three in order with a single command:
+Or use the convenience entrypoint:
 
 ```bash
 python3 run.py
 ```
 
-This runs `build.py`, `process.py`, and `retrieve.py` in sequence, using the `env/` virtual environment if it exists, otherwise falling back to `python3`. It stops on the first failure.
+This fzf-picks what to run: `Just Retrieve`, `Update Cache` (`build.py` + `process.py`), `Update & Retrieve` (all three), or `Exit`. It uses the `env/` virtual environment if it exists, otherwise falls back to `python3`, and stops on the first failure. If `fzf` isn't installed, it skips the menu and runs the full `Update & Retrieve` pipeline.
 
 You can also run each step individually.
 
