@@ -18,7 +18,7 @@ The project is three scripts, run in order:
 
 3. `retrieve.py` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps run on Groq for speed (`openai/gpt-oss-20b` for expansion, `openai/gpt-oss-120b` for reranking); embeddings stay on OpenAI.
 
-The database and a small embeddings cache are stored in a `cache/` directory next to the scripts, created automatically, so you can run them from any directory.
+The Python scripts live in `src/`, with `run.py` at the repo root as a convenience entrypoint. The database and a small embeddings cache are stored in a `src/cache/` directory next to the scripts, created automatically, so you can run them from any directory.
 
 ## Setup
 
@@ -39,9 +39,9 @@ export GROQ_API_KEY="your-groq-key-here"
 Build and process the database, then search:
 
 ```bash
-python3 build.py
-python3 process.py
-python3 retrieve.py
+python3 src/build.py
+python3 src/process.py
+python3 src/retrieve.py
 ```
 
 Or run all three in order with a single command:
@@ -57,14 +57,14 @@ You can also run each step individually.
 Build and process the database:
 
 ```bash
-python3 build.py
-python3 process.py
+python3 src/build.py
+python3 src/process.py
 ```
 
 Then search:
 
 ```bash
-python3 retrieve.py
+python3 src/retrieve.py
 ```
 
 At the `query>` prompt:
@@ -85,6 +85,6 @@ At the `query>` prompt:
 
 - The path to the Ch chats (`~/.ch/tmp/`) is fixed and never modified.
 - Each result shows a UTC timestamp (e.g. `Jul 27, 2025 09:45 UTC`) taken from the chat's last message, so resumed sessions sort and filter by when they were actually last used. It falls back to the epoch in the filename (`ch_session_<epoch>.json`) for chats with no messages.
-- `process.py` runs many requests in parallel. Set the worker count with `WORKERS=128 python3 process.py`.
-- If a chat fails to process, the error is recorded in the database and skipped on later runs. Retry those with `RETRY_ERRORS=1 python3 process.py`.
+- `process.py` runs many requests in parallel. Set the worker count with `WORKERS=128 python3 src/process.py`.
+- If a chat fails to process, the error is recorded in the database and skipped on later runs. Retry those with `RETRY_ERRORS=1 python3 src/process.py`.
 - Chats larger than the model input limit are summarized with a map-reduce pass (summarize each chunk, then summarize the summaries).

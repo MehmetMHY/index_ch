@@ -12,6 +12,15 @@ search with LLM reranking.
 
 ## Architecture
 
+All Python modules live in `src/` (`build.py`, `process.py`, `retrieve.py`,
+`config.py`, `input_time.py`); only `run.py` sits at the repo root, as the
+entrypoint. The imports between the modules are flat (`from config import ...`,
+`from build import ...`), which works because they are run as scripts (Python
+puts the script's own dir on `sys.path`), not as an installed package — do not
+add an `__init__.py` or convert them to a package, or those imports break. The
+generated `cache/` dir lives at `src/cache/` because `config.py` anchors it to
+its own `__file__`; moving `config.py` moves the cache with it.
+
 Three scripts, run in order, plus a shared config:
 
 - `config.py` is the single source of truth for paths, models, pricing, and all
@@ -64,7 +73,7 @@ Three scripts, run in order, plus a shared config:
   one of the last results, or pass a number to skip the picker; `/dump` accepts
   multiple numbers like `/dump 1 3 5` and uses fzf's `-m` multi-select mode) and
   `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
-  transcript to a temp file under `cache/tmp/`, opens it in `$EDITOR` (falls
+  transcript to a temp file under `src/cache/tmp/`, opens it in `$EDITOR` (falls
   back to `vim`), and deletes the file the moment the editor exits — any
   in-editor edits/saves are never persisted anywhere. `/copy` copies just the
   chat's filename (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`
@@ -83,12 +92,12 @@ Three scripts, run in order, plus a shared config:
   selecting, a second fzf menu (`pick_dump_action`, `DUMP_ACTIONS`) chooses the
   destination: `Save to $HOME/Downloads/` writes
   `~/Downloads/index_ch_dump_<chat_count>_<epoch>.json`; `Load into Ch
-(Temporary)` writes the log to `cache/tmp/` and resumes it via
+(Temporary)` writes the log to `src/cache/tmp/` and resumes it via
   `ch -f <full path>` (Ch's `-f` accepts an absolute path, not just a bare
   filename), deleting the temp file when Ch exits; `Load in Ch & save to
 Downloads` does the same but moves the temp file to `~/Downloads` on exit
   instead of deleting it; `Exit/Cancel` does nothing. The temp
-  write/resume/cleanup runs in a `try/finally` so the `cache/tmp/` file is
+  write/resume/cleanup runs in a `try/finally` so the `src/cache/tmp/` file is
   never orphaned, even on Ctrl-C. `unique_path` appends `_<n>` before the
   extension if a `~/Downloads` target name already exists, so a save never
   silently overwrites. The destination menu requires `fzf` (prints an error and
@@ -106,19 +115,21 @@ cache and rebuilds them automatically when the data changes.
 (`pick_time_range() -> (start, end) | None`) that `retrieve.py` imports for the
 `/time custom` absolute range. It has no project dependencies of its own.
 
-`run.py` is a convenience wrapper that runs all three scripts in order. It uses
-`env/bin/python3` when a virtual environment exists, otherwise falls back to
-`python3`. It exits non-zero on the first script failure.
+`run.py` (at the repo root) is a convenience wrapper that runs all three `src/`
+scripts in order. It uses `env/bin/python3` when a virtual environment exists
+(`env/` stays at the root), otherwise falls back to `python3`. It exits
+non-zero on the first script failure.
 
 ## Data and storage
 
-- All generated data lives in `cache/` (the database, the `.npz` embeddings
-  cache, SQLite journal/WAL sidecars, and `cache/tmp/` scratch files for
+- All generated data lives in `src/cache/` (the database, the `.npz` embeddings
+  cache, SQLite journal/WAL sidecars, and `src/cache/tmp/` scratch files for
   `retrieve.py`'s `/view`). It is created automatically by `config.py` and is
-  gitignored. Never commit it.
+  gitignored (the `cache/` pattern is un-anchored, so it matches at `src/cache/`
+  too). Never commit it.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
-  `cache/chats.db` means a full rebuild and re-processing.
+  `src/cache/chats.db` means a full rebuild and re-processing.
 - Schema changes are done as additive, idempotent migrations that read only
   existing data, never via a full rebuild: `process.py`'s `migrate` adds
   summary/short_summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
@@ -143,9 +154,9 @@ source env/bin/activate
 pip install -r requirements.txt   # httpx, numpy, openai, pydantic
 export OPENAI_API_KEY="..."        # embeddings (process.py + retrieve.py)
 export GROQ_API_KEY="..."          # retrieve.py rerank + query expansion
-python3 build.py                   # ingest new chats
-python3 process.py                 # summarize + embed (calls OpenAI, costs money)
-python3 retrieve.py                # interactive search
+python3 src/build.py               # ingest new chats
+python3 src/process.py             # summarize + embed (calls OpenAI, costs money)
+python3 src/retrieve.py            # interactive search
 ```
 
 `retrieve.py` reaches Groq with the same `openai` SDK, just a second client
@@ -158,8 +169,8 @@ Or run all three in order with `python3 run.py`.
 
 Useful env vars for `process.py`:
 
-- `WORKERS=128 python3 process.py` sets parallel worker count (default 64).
-- `RETRY_ERRORS=1 python3 process.py` re-attempts chats parked in the `error`
+- `WORKERS=128 python3 src/process.py` sets parallel worker count (default 64).
+- `RETRY_ERRORS=1 python3 src/process.py` re-attempts chats parked in the `error`
   column.
 
 There is no test suite. Verify changes by compiling (`python3 -m py_compile`)

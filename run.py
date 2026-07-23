@@ -3,9 +3,11 @@ import sys
 import os
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-BUILD_SCRIPT = os.path.join(ROOT_DIR, "build.py")
-PROCESS_SCRIPT = os.path.join(ROOT_DIR, "process.py")
-GET_SCRIPT = os.path.join(ROOT_DIR, "retrieve.py")
+# the scripts live in src/; run.py stays at the repo root as the entrypoint
+SRC_DIR = os.path.join(ROOT_DIR, "src")
+BUILD_SCRIPT = os.path.join(SRC_DIR, "build.py")
+PROCESS_SCRIPT = os.path.join(SRC_DIR, "process.py")
+GET_SCRIPT = os.path.join(SRC_DIR, "retrieve.py")
 
 PY_CALL = os.path.join(ROOT_DIR, "env/bin/python3")
 if not os.path.isfile(PY_CALL):
