@@ -13,6 +13,45 @@ import subprocess
 from datetime import datetime, timezone
 from typing import Annotated
 
+
+# ---- spinner ----------------------------------------------------------------
+
+
+class Spinner:
+    """Animated one-line spinner that erases itself; no-op when not a terminal."""
+
+    def __init__(self, message=""):
+        self.message = message
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _spin(self):
+        for ch in itertools.cycle("|/-\\"):
+            if self._stop.is_set():
+                break
+            sys.stdout.write(f"\r{ch} {self.message}" if self.message else f"\r{ch} ")
+            sys.stdout.flush()
+            time.sleep(0.1)
+
+    def __enter__(self):
+        if sys.stdout.isatty():
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread:
+            self._thread.join()
+            width = len(self.message) + 12 if self.message else 1
+            sys.stdout.write("\r" + " " * width + "\r")
+            sys.stdout.flush()
+
+
+# start the spinner before the slow imports (numpy, openai, httpx, pydantic)
+_startup_spinner = Spinner()
+_startup_spinner.__enter__()
+
 import numpy as np
 import httpx
 from pydantic import BaseModel, Field
@@ -129,40 +168,6 @@ Do not answer the query. Do not number them. Return only the alternative queries
 """.strip()
 
 
-# ---- loading spinner -------------------------------------------------------
-
-
-class Spinner:
-    """Animated one-line spinner that erases itself; no-op when not a terminal."""
-
-    def __init__(self, message="searching"):
-        self.message = message
-        self._stop = threading.Event()
-        self._thread = None
-
-    def _spin(self):
-        for ch in itertools.cycle("|/-\\"):
-            if self._stop.is_set():
-                break
-            sys.stdout.write(f"\r{ch} {self.message}")
-            sys.stdout.flush()
-            time.sleep(0.1)
-
-    def __enter__(self):
-        if sys.stdout.isatty():
-            self._thread = threading.Thread(target=self._spin, daemon=True)
-            self._thread.start()
-        return self
-
-    def __exit__(self, *exc):
-        self._stop.set()
-        if self._thread:
-            self._thread.join()
-            # erase the spinner line
-            sys.stdout.write("\r" + " " * (len(self.message) + 12) + "\r")
-            sys.stdout.flush()
-
-
 # ---- full text search (FTS5) -----------------------------------------------
 
 
@@ -187,7 +192,7 @@ def ensure_fts(conn):
     signature = f"{count}:{latest}"
     stored = conn.execute("SELECT signature FROM fts_state WHERE id = 1").fetchone()
     if stored is None or stored[0] != signature:
-        print("Building search index (one-time / after new or updated chats)...")
+        print("Updating search index...")
         conn.execute("INSERT INTO chats_fts(chats_fts) VALUES('rebuild')")
         conn.execute(
             "INSERT INTO fts_state(id, signature) VALUES(1, ?) "
@@ -1023,21 +1028,34 @@ def handle_time(args, current):
     return value
 
 
-HELP_TEXT = """<query>        search your chats
+HELP_TEXT = """\033[4mStatus\033[0m
+rerank: {rerank}
+expansion: {expand}
+time: {time_filter}
+\033[4mOptions\033[0m
+<query>        search your chats
 /view, /v      fuzzy-pick a result, open it in $EDITOR
-/view <n>      open result n directly, skipping the fzf picker
+/view <n>      open result n directly
 /copy, /c      pick a result and copy it to clipboard
-/copy <n>      copy result n directly, skipping the fzf picker
+/copy <n>      copy result n directly
 /run, /r       fuzzy-pick a result, resume it in ch (ch -f <file>)
-/run <n>       resume result n directly, skipping the fzf picker
-/dump, /d      pick one or more results, merge their messages into one log
-/dump <n> ...  dump result n (and more) directly, skipping the fzf picker
+/run <n>       resume result n directly
+/dump, /d      pick result(s) and merge them into one file
+/dump <n> ...  dump result n (and more) directly
 /time, /t      pick a time window to scope searches to
 /time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
 :fast          toggle the LLM reranker on/off
 :expand        toggle LLM query expansion on/off
 /help, /h      show this list
 quit, exit, :q exit"""
+
+
+def format_help(do_rerank, do_expand, time_filter):
+    return HELP_TEXT.format(
+        rerank="on" if do_rerank else "off",
+        expand="on" if do_expand else "off",
+        time_filter=time_filter_desc(time_filter),
+    )
 
 
 if __name__ == "__main__":
@@ -1048,24 +1066,22 @@ if __name__ == "__main__":
     conn = get_connection()
     backfill_message_epochs(conn)  # one-time; no-op once the column exists
     ensure_fts(conn)
-    print("Loading embeddings...")
     ids, mat, meta = load_vectors(conn)
+    _startup_spinner.__exit__(None, None, None)
     do_rerank = True
     do_expand = NUM_EXPANSIONS > 0
     time_filter = None
     last_results = []
-    print(
-        f"Ready, {len(ids)} chats indexed. Rerank and query expansion are ON "
-        "(':fast' and ':expand' toggle them).\n"
-        "Type a query, or '/help' for commands.\n"
-    )
+    n = len(ids)
+    print(f"Loaded {n:,} indexed chat{'s' if n != 1 else ''}")
+    print("Type a query or /help")
 
     while True:
         try:
             prompt = (
-                f"query [{time_filter_label(time_filter)}]> "
+                f"[{time_filter_label(time_filter)}]> "
                 if time_filter
-                else "query> "
+                else "> "
             )
             query = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
@@ -1086,7 +1102,7 @@ if __name__ == "__main__":
 
         parts = query.split()
         if parts[0].lower() in ("/help", "/h"):
-            print(HELP_TEXT)
+            print(format_help(do_rerank, do_expand, time_filter))
             continue
         if parts[0].lower() in ("/view", "/v"):
             handle_view(parts[1:], last_results, meta, conn)
