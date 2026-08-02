@@ -1,7 +1,5 @@
 # index_ch
 
-_July 20, 2026_
-
 ## About
 
 A small add-on for [Ch](https://github.com/MehmetMHY/ch) that indexes your saved Ch chat history and lets you search it by meaning, not just keywords.
