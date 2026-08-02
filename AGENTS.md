@@ -16,7 +16,7 @@ All Python modules live in `src/` (`build.py`, `process.py`, `retrieve.py`,
 `config.py`, `input_time.py`); only `run.py` sits at the repo root, as the
 entrypoint. The imports between the modules are flat (`from config import ...`,
 `from build import ...`), which works because they are run as scripts (Python
-puts the script's own dir on `sys.path`), not as an installed package — do not
+puts the script's own dir on `sys.path`), not as an installed package. Do not
 add an `__init__.py` or convert them to a package, or those imports break. The
 generated `cache/` dir lives at `src/cache/` because `config.py` anchors it to
 its own `__file__`; moving `config.py` moves the cache with it.
@@ -74,7 +74,7 @@ Three scripts, run in order, plus a shared config:
   multiple numbers like `/dump 1 3 5` and uses fzf's `-m` multi-select mode) and
   `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
   transcript to a temp file under `src/cache/tmp/`, opens it in `$EDITOR` (falls
-  back to `vim`), and deletes the file the moment the editor exits — any
+  back to `vim`), and deletes the file the moment the editor exits; any
   in-editor edits/saves are never persisted anywhere. `/copy` copies just the
   chat's filename (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
@@ -85,7 +85,7 @@ Three scripts, run in order, plus a shared config:
   messages stay together and in order (no interleaving), and every message is
   tagged with `source_file` (its original `ch_*.json` name). Root `platform`/
   `model`/`base_url`/`timestamp` are taken from the newest chat and
-  `source_files` lists all merged filenames in order — `ch -f` reads those root
+  `source_files` lists all merged filenames in order. `ch -f` reads those root
   fields (not per-message ones) to restore the session it resumes, and dropping
   them breaks it with a "platform not found" error; extra keys (root or
   per-message) are safely ignored by `ch`'s permissive JSON unmarshal. After
