@@ -39,7 +39,13 @@ Three scripts, run in order, plus a shared config:
   database. Incremental via a per-file `content_hash` (SHA-256 of the bytes):
   new files are inserted, files whose hash changed are re-ingested in place
   (clearing summary/embedding so process.py redoes just them), unchanged files
-  are skipped.
+  are skipped. A chat whose source file vanished from `~/.ch/tmp/` is never
+  deleted (its summary/embedding/raw are cached and were paid for): it is
+  flagged `archived = 1` and bumped `updated_at` so retrieve.py's caches
+  rebuild. A file that reappears (archived=1 but back on disk) is un-archived,
+  and if its hash also changed it is re-ingested via the changed path (which
+  clears the flag). Only rows not already archived are flipped, so a steady-
+  state build does not bump `updated_at` and needlessly invalidate caches.
 - `process.py` summarizes each chat (`gpt-5.4-nano`), condenses that summary
   into the 1-2 sentence `short_summary` shown in search results (same model,
   fed the summary not the raw chat, so backfilling it is ~10x cheaper), and
@@ -59,7 +65,14 @@ Three scripts, run in order, plus a shared config:
   results are ordered most-recent-first (recency tiebreak). On startup a daemon
   thread (`warm_connections`) opens the OpenAI + Groq HTTPS connections so the
   first query does not pay cold-start latency. `:fast` toggles the
-  reranker, `:expand` toggles query expansion, and `/time`/`/t` sets a persistent
+  reranker, `:expand` toggles query expansion, and `:archived` toggles whether
+  chats whose source file is gone from `~/.ch/tmp/` (flagged `archived = 1` by
+  `build.py`) show in search results. Archived chats are hidden by default (the
+  flag is in-memory per session, like `:fast`); toggling it on surfaces them so
+  you can still search/view chats you paid to embed even after Ch drops the
+  source file. They stay in the FTS index and embeddings cache at all times, so
+  the toggle is instant (no rebuild): `allowed_in_range` masks both the vector
+  and keyword legs, alongside the `/time` filter. `/time`/`/t` sets a persistent
   time filter (rolling `1d`/`3d`/`1w`/`1m`/`1y`, `all` to clear, or `custom` which
   opens the `input_time.py` curses calendar for an absolute start/end range;
   fzf picker or a direct token) that scopes every subsequent search. `/len`/`/l`
@@ -143,10 +156,11 @@ exits non-zero on the first script failure.
   summary/short_summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
   populates `last_message_epoch` from the stored `raw`, and
   `backfill_content_hashes` adds `content_hash` and blesses each row with its
-  current on-disk hash. This is deliberate: the summaries/embeddings cost ~$6-7
-  to regenerate, so new columns must be backfillable in place without any OpenAI
-  calls (the content-hash backfill in particular must not make everything look
-  "changed", which would re-embed the whole DB).
+  current on-disk hash, and `backfill_archived` adds the `archived` flag
+  (DEFAULT 0, no data scan). This is deliberate: the summaries/embeddings cost
+  ~$6-7 to regenerate, so new columns must be backfillable in place without any
+  OpenAI calls (the content-hash backfill in particular must not make everything
+  look "changed", which would re-embed the whole DB).
 - The chat source path `~/.ch/tmp/` is owned by Ch and is read-only for us. Do
   not modify it or write to it.
 
@@ -260,6 +274,9 @@ unprompted.
   returns the true top-`POOL` in-range, and `fts_search` fetches a wider window
   then filters to the in-range set. This keeps narrow ranges (e.g. `1d`) from
   coming up empty because their best chats were not in the global top-`POOL`.
+  The same search-level masking applies to the `:archived` toggle:
+  `allowed_in_range` drops archived rows from both legs when hidden, so toggling
+  `:archived` on never starves a query the way trimming final results would.
 - The `time_filter` value has three shapes: `None` (all time), a `TIME_RANGES`
   key (rolling window ending now, recomputed live each query; `1m`/`1y` are
   approximate 30d/365d), or a `(start_epoch, end_epoch)` tuple (absolute custom
@@ -277,3 +294,20 @@ unprompted.
   is the `cleaned` text `load_and_clean` stores, `skip_noise=False` is what
   `retrieve.py`'s `/view` shows as the raw transcript. Keep noise-filtering
   logic in this one function rather than duplicating it in `retrieve.py`.
+- A chat flagged `archived = 1` (source file gone from `~/.ch/tmp/`) is kept
+  forever: its `summary`, `short_summary`, `embedding`, and `raw` are all
+  cached in the DB, so search and `/view` keep working for it with no disk
+  access. `/copy` still copies the (now-dead) filename with a note, `/run`
+  warns that `ch -f` may fail before handing off, and `/dump` skips it with an
+  "archived (source file gone)" message instead of a generic read error. The
+  flag is additive (`backfill_archived`, DEFAULT 0, no data scan) so existing
+  paid rows are untouched; only `build.py`'s disk reconciliation ever sets it,
+  and only for rows not already flagged (so a steady-state build does not bump
+  `updated_at` and needlessly invalidate `retrieve.py`'s caches). `/purge` is
+  the only path that drops archived rows: it `DELETE`s every `archived = 1`
+  chat after an fzf confirmation ("No" first so a bare Enter is safe; both
+  choice labels carry the row count so the user sees the blast radius), then the caller reloads `ids/mat/meta` via `load_vectors` and
+  rebuilds FTS via `ensure_fts` in place, since the row set and the embeddings
+  cache signature (count:latest) both changed. This is the one destructive op
+  in the project - it discards paid summaries/embeddings, so keep the
+  confirmation gate.

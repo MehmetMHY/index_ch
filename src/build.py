@@ -180,6 +180,23 @@ def backfill_content_hashes(conn):
     print(f"Backfilled content_hash for {len(updates)} chats.")
 
 
+def backfill_archived(conn):
+    """Add the archived flag (0 = source file present, 1 = gone). Idempotent:
+    runs only when the column is first added. Existing rows default to 0
+    (present), so paid summaries/embeddings are never touched and no disk scan
+    or API call happens here. build.py's main loop sets archived = 1 for rows
+    whose source file vanished from ~/.ch/tmp/; deleted chats stay searchable
+    (their summary/embedding/raw are cached in the DB) but are flagged so
+    retrieve.py can hide them by default and warn on /run, /dump, /copy.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
+    if "archived" in cols:
+        return
+    conn.execute("ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+    conn.commit()
+    print("Added archived column.")
+
+
 def stored_hashes(conn):
     """Map of file_path -> content_hash for every chat already in the DB."""
     return dict(conn.execute("SELECT file_path, content_hash FROM chats"))
@@ -225,6 +242,8 @@ def update_entries(conn, entries):
     clear = "".join(
         f", {c} = NULL" for c in ("summary", "embedding", "error") if c in cols
     )
+    if "archived" in cols:
+        clear += ", archived = 0"
     conn.executemany(
         f"""
         UPDATE chats
@@ -256,6 +275,7 @@ if __name__ == "__main__":
     conn = get_connection()
     backfill_message_epochs(conn)
     backfill_content_hashes(conn)
+    backfill_archived(conn)
 
     # hash every file on disk and diff against what the DB has stored: unknown
     # paths are new, known paths whose hash moved are resumed/edited chats. skip
@@ -268,10 +288,35 @@ if __name__ == "__main__":
             print(f"skipping {os.path.basename(p)}: {exc}")
 
     stored = stored_hashes(conn)
+    archived_flags = dict(conn.execute("SELECT file_path, archived FROM chats"))
     new_paths = [p for p in disk_hashes if p not in stored]
     changed_paths = [
         p for p in disk_hashes if p in stored and stored[p] != disk_hashes[p]
     ]
+
+    # a chat whose source file vanished from ~/.ch/tmp/ is flagged archived but
+    # never deleted (its summary/embedding/raw are cached and paid for). only
+    # flip rows that are not already archived, so a steady-state build does not
+    # bump updated_at and needlessly invalidate retrieve.py's caches. a file that
+    # reappears (archived=1 but back on disk) is un-archived; if its hash also
+    # changed it is re-ingested via changed_paths (which clears archived too).
+    now = datetime.now(timezone.utc).isoformat()
+    newly_missing = [
+        p for p in stored if p not in disk_hashes and archived_flags.get(p) != 1
+    ]
+    reappeared = [p for p in disk_hashes if archived_flags.get(p) == 1]
+    if newly_missing:
+        conn.executemany(
+            "UPDATE chats SET archived = 1, updated_at = ? WHERE file_path = ?",
+            [(now, p) for p in newly_missing],
+        )
+        conn.commit()
+    if reappeared:
+        conn.executemany(
+            "UPDATE chats SET archived = 0, updated_at = ? WHERE file_path = ?",
+            [(now, p) for p in reappeared],
+        )
+        conn.commit()
 
     # load only new/changed files; load_and_clean returns None for any it could
     # not read or parse (e.g. caught mid-write), so those are skipped and left for
@@ -307,6 +352,10 @@ if __name__ == "__main__":
     updated = sum(1 for p in changed_paths if p in results)
     skipped = len(to_load) - len(results)
     summary = f"Added {added} new, updated {updated} changed chats"
+    if newly_missing:
+        summary += f", {len(newly_missing)} archived (source file gone, kept)"
+    if reappeared:
+        summary += f", {len(reappeared)} un-archived (source file returned)"
     if skipped:
         summary += f" ({skipped} skipped: unreadable or mid-write)"
     print(f"{summary}. Runtime: {runtime:.2f} seconds")

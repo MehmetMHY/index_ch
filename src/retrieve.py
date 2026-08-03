@@ -56,7 +56,12 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 
 # reuse the shared db helpers from the build script; all tunables live in config
-from build import get_connection, format_messages, backfill_message_epochs
+from build import (
+    get_connection,
+    format_messages,
+    backfill_message_epochs,
+    backfill_archived,
+)
 from config import (
     EMBEDDINGS_CACHE_PATH,
     EMBEDDING_MODEL,
@@ -235,7 +240,7 @@ def load_vectors(conn):
     is always read fresh from the db - that part is cheap, no float parsing.
     """
     rows = conn.execute(
-        "SELECT id, file_path, summary, short_summary, last_message_epoch "
+        "SELECT id, file_path, summary, short_summary, last_message_epoch, archived "
         "FROM chats WHERE embedding IS NOT NULL"
     ).fetchall()
     meta = {
@@ -244,6 +249,7 @@ def load_vectors(conn):
             "summary": r[2],
             "short_summary": r[3],
             "last_message_epoch": r[4],
+            "archived": bool(r[5]),
         }
         for r in rows
     }
@@ -401,22 +407,29 @@ def range_bounds(time_filter):
     return time.time() - TIME_RANGES[time_filter], None
 
 
-def allowed_in_range(ids, meta, time_filter):
+def allowed_in_range(ids, meta, time_filter, show_archived):
     """Return (filtered_id_array, filtered_row_mask, allowed_set) for the active
-    time filter, or (ids, None, None) when no filter is active.
+    filters, or (ids, None, None) when no filter is active.
 
-    Chats whose filename has no parseable epoch are excluded while a filter is
-    on. The mask aligns with the embeddings matrix rows so the vector leg can be
-    restricted to in-range chats; the set filters the keyword leg.
+    Archived chats (source file gone from disk) are excluded unless
+    show_archived is True. When a time filter is also on, chats whose filename
+    has no parseable epoch are excluded. The mask aligns with the embeddings
+    matrix rows so the vector leg can be restricted to in-range chats; the set
+    filters the keyword leg. Archived rows stay in the index and embeddings
+    cache at all times, so toggling show_archived is instant (no rebuild).
     """
-    if not time_filter:
+    if time_filter is None and show_archived:
         return ids, None, None
-    lo, hi = range_bounds(time_filter)
+    lo, hi = range_bounds(time_filter) if time_filter else (None, None)
     mask = np.fromiter(
         (
-            (e := chat_epoch(meta[int(i)])) is not None
-            and e >= lo
-            and (hi is None or e <= hi)
+            (show_archived or not meta[int(i)].get("archived"))
+            and (
+                lo is None
+                or (e := chat_epoch(meta[int(i)])) is not None
+                and e >= lo
+                and (hi is None or e <= hi)
+            )
             for i in ids
         ),
         dtype=bool,
@@ -427,7 +440,16 @@ def allowed_in_range(ids, meta, time_filter):
 
 
 def search(
-    conn, ids, mat, meta, query, do_rerank, do_expand, time_filter=None, top_k=TOP_K
+    conn,
+    ids,
+    mat,
+    meta,
+    query,
+    do_rerank,
+    do_expand,
+    time_filter=None,
+    top_k=TOP_K,
+    show_archived=False,
 ):
     # optionally rewrite the query into a few variants, then embed the original
     # plus all variants in one batched call (expansion adds an LLM call but no
@@ -442,9 +464,10 @@ def search(
     queries = [query] + variants
     vecs, embed_in = embed_queries(queries)
 
-    # restrict both retrieval legs to the active time window (if any) at the
-    # search level, so narrow ranges still surface their best in-range matches
-    f_ids, mask, allowed = allowed_in_range(ids, meta, time_filter)
+    # restrict both retrieval legs to the active time window (if any) and to
+    # non-archived chats (unless toggled on) at the search level, so narrow
+    # ranges and archived-hiding still surface their best in-range matches
+    f_ids, mask, allowed = allowed_in_range(ids, meta, time_filter, show_archived)
     f_mat = mat if mask is None else mat[mask]
 
     rankings = []
@@ -617,8 +640,9 @@ def print_results(results, meta, elapsed, usage):
         name = os.path.basename(info["file_path"])
         ts = format_timestamp(chat_epoch(info))
         ts_tag = f" · {ts}" if ts else ""
+        arch_tag = " · archived" if info.get("archived") else ""
         tag = f" · relevance {grade}/3" if grade is not None else ""
-        print(f"{i}. {name}{ts_tag}{tag}")
+        print(f"{i}. {name}{ts_tag}{arch_tag}{tag}")
         print(f"   {chat_preview(info)}\n")
     if not results:
         print("No matches.\n")
@@ -810,7 +834,8 @@ def copy_to_clipboard(text):
 def copy_chat(cid, meta):
     name = os.path.basename(meta[cid]["file_path"])
     if copy_to_clipboard(name):
-        print(f"Copied {name} to clipboard.")
+        note = " (archived - source file gone)" if meta[cid].get("archived") else ""
+        print(f"Copied {name} to clipboard{note}.")
 
 
 def run_chat(cid, meta):
@@ -819,6 +844,8 @@ def run_chat(cid, meta):
         print("ch not found on PATH - https://github.com/MehmetMHY/ch")
         return
     name = os.path.basename(meta[cid]["file_path"])
+    if meta[cid].get("archived"):
+        print(f"Note: {name} is archived (source file gone); ch -f may fail.")
     print(f"Opening {name} in ch...")
     subprocess.run(["ch", "-f", name])
 
@@ -863,6 +890,9 @@ def build_dump(cids, meta):
     for cid in cids:
         path = meta[cid]["file_path"]
         name = os.path.basename(path)
+        if meta[cid].get("archived"):
+            skipped.append((name, "archived (source file gone)"))
+            continue
         try:
             with open(path, "rb") as f:
                 buf = f.read()
@@ -1003,6 +1033,48 @@ def handle_dump(args, last_results, meta):
         load_dump_in_ch(merged, filename, action == "load_keep", skipped)
 
 
+# /purge: permanently delete all archived chats (source file gone). Destructive:
+# drops paid summaries/embeddings, so it is gated behind an fzf confirmation.
+# "No" is listed first and is the default on a bare Enter. The choice labels
+# carry the count so the user sees the blast radius before confirming.
+PURGE_NO = "No (keep archived chats)"
+PURGE_YES_TMPL = "Yes, delete {count} archived chat(s)"
+
+
+def handle_purge(conn):
+    """Delete every chat flagged archived = 1 after an fzf confirmation. Returns
+    the number deleted (0 if cancelled, declined, or none to delete). The caller
+    must reload its in-memory ids/mat/meta and rebuild FTS afterward, since the
+    row set and embeddings cache signature have changed."""
+    count = conn.execute("SELECT count(*) FROM chats WHERE archived = 1").fetchone()[0]
+    if count == 0:
+        print("No archived chats to remove.")
+        return 0
+    if shutil.which("fzf") is None:
+        print("fzf not found on PATH - install it to confirm /purge.")
+        return 0
+
+    yes_label = PURGE_YES_TMPL.format(count=count)
+    choices = [PURGE_NO, yes_label]
+    print(
+        f"This permanently deletes {count} archived chat(s) and their cached summaries/embeddings."
+    )
+    proc = subprocess.run(
+        ["fzf", "--prompt=delete all archived? > ", "--cycle"],
+        input="\n".join(choices),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or proc.stdout.strip() != yes_label:
+        print("Purge cancelled.")
+        return 0
+
+    cur = conn.execute("DELETE FROM chats WHERE archived = 1")
+    conn.commit()
+    print(f"Deleted {cur.rowcount} archived chat(s).")
+    return cur.rowcount
+
+
 # /time: scope searches to a time window
 TIME_LABELS = {
     "1d": "past 1 day",
@@ -1136,6 +1208,7 @@ def handle_len(args, current):
 HELP_TEXT = """\033[4mStatus\033[0m
 rerank: {rerank}
 expansion: {expand}
+archived: {archived}
 time: {time_filter}
 results: {result_len}
 \033[4mOptions\033[0m
@@ -1154,14 +1227,17 @@ results: {result_len}
 /len <n>       set how many results to show (1-25)
 :fast          toggle the LLM reranker on/off
 :expand        toggle LLM query expansion on/off
+:archived      toggle showing archived chats (source file gone) on/off
+/purge         permanently delete all archived chats (fzf-confirm)
 /help, /h      show this list
 quit, exit, :q exit"""
 
 
-def format_help(do_rerank, do_expand, time_filter, result_len):
+def format_help(do_rerank, do_expand, time_filter, result_len, show_archived):
     return HELP_TEXT.format(
         rerank="on" if do_rerank else "off",
         expand="on" if do_expand else "off",
+        archived="shown" if show_archived else "hidden",
         time_filter=time_filter_desc(time_filter),
         result_len=result_len,
     )
@@ -1174,11 +1250,13 @@ if __name__ == "__main__":
 
     conn = get_connection()
     backfill_message_epochs(conn)  # one-time; no-op once the column exists
+    backfill_archived(conn)  # one-time; no-op once the column exists
     ensure_fts(conn)
     ids, mat, meta = load_vectors(conn)
     _startup_spinner.__exit__(None, None, None)
     do_rerank = True
     do_expand = NUM_EXPANSIONS > 0
+    show_archived = False
     time_filter = None
     result_len = TOP_K
     last_results = []
@@ -1205,10 +1283,18 @@ if __name__ == "__main__":
             do_expand = not do_expand
             print(f"Query expansion is now {'ON' if do_expand else 'OFF'}.")
             continue
+        if query.lower() == ":archived":
+            show_archived = not show_archived
+            print(f"Archived chats are now {'SHOWN' if show_archived else 'HIDDEN'}.")
+            continue
 
         parts = query.split()
         if parts[0].lower() in ("/help", "/h"):
-            print(format_help(do_rerank, do_expand, time_filter, result_len))
+            print(
+                format_help(
+                    do_rerank, do_expand, time_filter, result_len, show_archived
+                )
+            )
             continue
         if parts[0].lower() in ("/view", "/v"):
             handle_view(parts[1:], last_results, meta, conn)
@@ -1228,6 +1314,14 @@ if __name__ == "__main__":
         if parts[0].lower() in ("/len", "/l"):
             result_len = handle_len(parts[1:], result_len)
             continue
+        if parts[0].lower() == "/purge":
+            if handle_purge(conn):
+                # row set and embeddings cache signature changed: reload
+                # in-memory state and rebuild the FTS index in place
+                ensure_fts(conn)
+                ids, mat, meta = load_vectors(conn)
+                last_results = []
+            continue
 
         start = time.time()
         with Spinner("reranking" if do_rerank else "searching"):
@@ -1241,6 +1335,7 @@ if __name__ == "__main__":
                 do_expand,
                 time_filter,
                 result_len,
+                show_archived,
             )
         print_results(results, meta, time.time() - start, usage)
         last_results = results

@@ -10,7 +10,7 @@ It reads the chat JSON files that Ch stores under `~/.ch/tmp/`, cleans them, sum
 
 The project is three scripts, run in order:
 
-1. `build.py` reads the chat JSON files, strips out auto-generated noise (code dumps, file pastes, command output), and stores the cleaned text in `chats.db`. It adds new files and re-ingests any whose contents changed (detected by a content hash), so a resumed chat picks up its new messages. Unchanged files are skipped, so re-running is cheap.
+1. `build.py` reads the chat JSON files, strips out auto-generated noise (code dumps, file pastes, command output), and stores the cleaned text in `chats.db`. It adds new files and re-ingests any whose contents changed (detected by a content hash), so a resumed chat picks up its new messages. Unchanged files are skipped, so re-running is cheap. A chat whose source file is deleted from `~/.ch/tmp/` is never removed (you paid for its summary and embedding): it is flagged `archived` and kept searchable.
 
 2. `process.py` summarizes each chat with `gpt-5.4-nano`, condenses that summary into a 1-2 sentence blurb (also `gpt-5.4-nano`) for the search results, and embeds the summary with `text-embedding-3-small`, saving all three back to the database. Each step is skipped when its column is already filled, so it is resumable and re-running never redoes work you already paid for.
 
@@ -76,6 +76,8 @@ At the `query>` prompt:
 - Type `/len` or `/l` to show the current result count, or `/len <n>` (e.g. `/len 10`) to set how many results are shown per search, from 1 to 25 (default 5). Anything else prints a usage message and leaves the count unchanged.
 - Type `:fast` to toggle the LLM reranker off for quicker, keyword-and-vector-only results.
 - Type `:expand` to toggle LLM query expansion off (skips the query-rewrite step; slightly faster and cheaper, but narrower recall).
+- Type `:archived` to toggle showing chats whose source file is gone from `~/.ch/tmp/` (kept and flagged `archived` by `build.py`). They are hidden by default; toggle this on to search and view chats you paid to embed even after Ch drops the source file. `/run` and `/dump` warn or skip them since the file is gone, but `/view` still works (the transcript is cached in the DB).
+- Type `/purge` to permanently delete all archived chats at once (fzf-confirm; the only path that drops paid rows). Useful once you are sure you no longer want the dead-source chats around.
 - Type `/help` or `/h` to list all commands.
 - Type `quit` to exit.
 
