@@ -13,8 +13,8 @@ search with LLM reranking.
 ## Architecture
 
 All Python modules live in `src/` (`build.py`, `process.py`, `retrieve.py`,
-`config.py`, `input_time.py`); only `run.py` sits at the repo root, as the
-entrypoint. The imports between the modules are flat (`from config import ...`,
+`config.py`, `input_time.py`, `preview.py`); only `run.py` sits at the repo
+root, as the entrypoint. The imports between the modules are flat (`from config import ...`,
 `from build import ...`), which works because they are run as scripts (Python
 puts the script's own dir on `sys.path`), not as an installed package. Do not
 add an `__init__.py` or convert them to a package, or those imports break. The
@@ -85,7 +85,27 @@ Three scripts, run in order, plus a shared config:
   It also has `/view`/`/v`, `/copy`/`/c`, `/run`/`/r`, and `/dump`/`/d` (fzf-pick
   one of the last results, or pass a number to skip the picker; `/dump` accepts
   multiple numbers like `/dump 1 3 5` and uses fzf's `-m` multi-select mode) and
-  `/help`/`/h`. `/view` writes the summary plus the full raw (unfiltered)
+  `/help`/`/h`. `/ls` lists every chat newest->oldest in fzf (one line each:
+  `[MM/DD/YY•HH:MMZ] short_summary`, falling back to the filename when no
+  `short_summary` is stored yet), filtered by the active `:archived` toggle and
+  `/time` filter (same `chat_epoch`/`range_bounds` logic as search, applied at
+  list-build time via `list_chats_by_recency`). It shows a right-side preview
+  via the lightweight `preview.py` helper (no vector/API imports), and pressing
+  Enter opens a second fzf menu (`pick_ls_action`, `LS_ACTIONS`) to open the
+  selected chat in Ch (`ch -f <file>`) or copy its filename to the clipboard.
+  Previews are precomputed: the `PREVIEW_BATCH` (500) most recent chats are
+  rendered in parallel (`multiprocessing.Pool`) before fzf opens so the top of
+  the list is instant to browse, and a daemon thread fills the remaining
+  previews sequentially while fzf is open. Each preview is written atomically
+  to `TMP_DIR/ls_preview_<id>.txt` (write to `.tmp`, rename) so fzf's `cat`
+  never reads a partial file; the fzf preview command tries the cached file
+  first and falls back to live `preview.py` if not yet computed. All temp files
+  are cleaned up in a `try/finally` when fzf exits (even on Ctrl-C). The
+  `format_messages_limited` early-exit formatter stops once the transcript
+  exceeds `PREVIEW_LIMIT` chars, so long chats render as fast as short ones. It
+  queries all DB rows directly rather than the embeddings-loaded `meta`, so
+  unprocessed chats appear too. It requires `fzf` and `ch` on PATH.
+  `/view` writes the summary plus the full raw (unfiltered)
   transcript to a temp file under `src/cache/tmp/`, opens it in `$EDITOR` (falls
   back to `vim`), and deletes the file the moment the editor exits; any
   in-editor edits/saves are never persisted anywhere. `/copy` copies just the
@@ -128,14 +148,29 @@ cache and rebuilds them automatically when the data changes.
 (`pick_time_range() -> (start, end) | None`) that `retrieve.py` imports for the
 `/time custom` absolute range. It has no project dependencies of its own.
 
+`preview.py` is the lightweight fzf preview helper for `/ls`. It imports only
+`build` (for `format_messages` and `is_auto_entry`) and `config` (for `DB_PATH`
+and `PREVIEW_LIMIT`), never `retrieve.py` or numpy/openai/httpx/pydantic. This is
+deliberate: `retrieve.py`'s `multiprocessing.Pool` targets
+`compute_and_save_preview` in `preview.py`, so each spawned worker only pays the
+light import cost (~50ms), not the full retrieve.py import stack (~2-3s). Its
+`format_messages_limited` early-exit formatter stops once the transcript exceeds
+`PREVIEW_LIMIT` chars, so long chats render as fast as short ones. It reads the
+`LS_TOTAL_CHATS` env var (set by `retrieve.py` before precompute) to include the
+total chat count in the preview header. It has a standalone CLI (`python3
+src/preview.py <id>`) used as the fzf fallback when a cached preview file does
+not exist yet.
+
 `run.py` (at the repo root) is a convenience wrapper around the `src/` scripts.
-`pick_action` fzf-picks one of `Just Retrieve` (`retrieve.py` only),
-`Update Cache` (`build.py` + `process.py`), `Update & Retrieve` (all three), or
-`Exit` (does nothing); cancelling the picker (Esc/Ctrl-C) also does nothing.
+`pick_action` fzf-picks one of `Browse Chats` (`retrieve.py ls`, a one-shot
+`/ls` startup mode that exits after the fzf list instead of loading search
+vectors or warming API connections), `Smart Search` (`retrieve.py` only),
+`Update Cache` (`build.py` + `process.py`), or `Exit Session` (does nothing);
+cancelling the picker (Esc/Ctrl-C) also does nothing.
 There is no flag-based bypass - unlike `retrieve.py`'s pickers, which degrade
 to "pass a number" when `fzf` is missing, `run.py` has no non-interactive
 alternative to fall back to, so it degrades by running the full pipeline
-(`Update & Retrieve`) instead, with a printed note - this keeps headless
+(build + process + retrieve) instead, with a printed note - this keeps headless
 callers (e.g. cron) working the way bare `python3 run.py` always did, before
 this picker existed. It uses `env/bin/python3` when a virtual environment
 exists (`env/` stays at the root), otherwise falls back to `python3`, and
@@ -144,10 +179,11 @@ exits non-zero on the first script failure.
 ## Data and storage
 
 - All generated data lives in `src/cache/` (the database, the `.npz` embeddings
-  cache, SQLite journal/WAL sidecars, and `src/cache/tmp/` scratch files for
-  `retrieve.py`'s `/view`). It is created automatically by `config.py` and is
-  gitignored (the `cache/` pattern is un-anchored, so it matches at `src/cache/`
-  too). Never commit it.
+  cache, SQLite journal/WAL sidecars, `src/cache/tmp/` scratch files for
+  `retrieve.py`'s `/view`, and `src/cache/tmp/ls_preview_*.txt` files for
+  `/ls`'s precomputed fzf previews). It is created automatically by `config.py`
+  and is gitignored (the `cache/` pattern is un-anchored, so it matches at
+  `src/cache/` too). Never commit it.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
   `src/cache/chats.db` means a full rebuild and re-processing.
@@ -215,7 +251,7 @@ unprompted.
 - Keep comments short and purposeful. Prefer a brief section label or a one-line
   note explaining _why_, not line-by-line narration. `config.py` in particular
   is intentionally terse.
-- No em dashes in the README.
+- No em dashes in the README or AGENTS.md.
 - Pricing is keyed by model in `config.PRICING` as `(input, output)` per 1M
   tokens, with a `estimate_cost` helper. Keep price and model together.
 - Paths are always derived from `__file__` via `config.py` so scripts work from

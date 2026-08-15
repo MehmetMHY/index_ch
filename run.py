@@ -16,21 +16,21 @@ if not os.path.isfile(PY_CALL):
     PY_CALL = "python3"
 
 RUN_ACTIONS = [
-    ("Just Retrieve", "retrieve"),
+    ("Browse Chats", "ls"),
+    ("Smart Search", "retrieve"),
     ("Update Cache", "update"),
-    ("Update & Retrieve", "both"),
-    ("Exit", "exit"),
+    ("Exit Session", "exit"),
 ]
 
 
 def pick_action():
     if shutil.which("fzf") is None:
-        print("fzf not found on PATH - running the full pipeline (update + retrieve).")
-        return "both"
+        print("fzf not found on PATH - running update + retrieve.")
+        return "update_retrieve"
 
     label_to_action = {label: action for label, action in RUN_ACTIONS}
     proc = subprocess.run(
-        ["fzf", "--prompt=run> ", "--cycle"],
+        ["fzf", "--cycle"],
         input="\n".join(label for label, _ in RUN_ACTIONS),
         capture_output=True,
         text=True,
@@ -58,8 +58,15 @@ if __name__ == "__main__":
     action = pick_action()
     if action == "retrieve":
         run_scripts([GET_SCRIPT])
+    elif action == "ls":
+        # launch retrieve.py with a startup command so it runs /ls on launch
+        cmd = f"{PY_CALL} {GET_SCRIPT} ls"
+        status = os.system(cmd)
+        if status != 0:
+            print(f"error: '{cmd}' command failed with status {status}")
+            sys.exit(1)
     elif action == "update":
         run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT])
-    elif action == "both":
+    elif action == "update_retrieve":
         run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT, GET_SCRIPT])
     sys.exit(0)

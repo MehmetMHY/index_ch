@@ -61,6 +61,10 @@ RRF_K = 60
 PREVIEW_CHARS = 400
 # number of extra query variants the LLM generates before fusion (0 disables)
 NUM_EXPANSIONS = 3
+# /ls preview: how many of the most recent chats to precompute in parallel
+# before fzf opens, and the max transcript chars to render per preview.
+PREVIEW_BATCH = 500
+PREVIEW_LIMIT = 5000
 # selectable rolling time windows for the /time filter, in seconds from now.
 # order is preserved in the fzf picker; months/years are approximate.
 TIME_RANGES = {

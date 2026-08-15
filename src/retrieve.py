@@ -5,11 +5,13 @@ import json
 import time
 import shlex
 import shutil
+import sqlite3
 import platform
 import tempfile
 import itertools
 import threading
 import subprocess
+from multiprocessing import Pool
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -77,12 +79,17 @@ from config import (
     TOP_K,
     RRF_K,
     PREVIEW_CHARS,
+    PREVIEW_BATCH,
+    DB_PATH,
     TMP_DIR,
     estimate_cost,
 )
 
 # interactive UTC calendar picker for the /time "custom" absolute range
 from input_time import pick_time_range
+
+# lightweight preview helper for /ls (no vector/API imports)
+from preview import preview_chat_with_conn, compute_and_save_preview
 
 # OpenAI for embeddings (the stored vectors are text-embedding-3-small, so the
 # query must embed in the same space). Groq for the two retrieval LLM steps
@@ -634,6 +641,17 @@ def format_timestamp(epoch):
     return dt.strftime("%b %d, %Y %H:%M UTC")
 
 
+def format_list_timestamp(epoch):
+    """Timestamp format for /ls: 'MM/DD/YY•HH:MMZ' using 24-hour UTC time."""
+    if not epoch:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return ""
+    return dt.strftime("%m/%d/%y•%H:%MZ")
+
+
 def print_results(results, meta, elapsed, usage):
     for i, (cid, grade) in enumerate(results, 1):
         info = meta[cid]
@@ -689,7 +707,7 @@ def pick_with_fzf(last_results, meta, hint):
     for i, (cid, grade) in enumerate(last_results, 1):
         info = meta[cid]
         name = os.path.basename(info["file_path"])
-        ts = format_timestamp(chat_epoch(info))
+        ts = format_list_timestamp(chat_epoch(info))
         ts_tag = f" ({ts})" if ts else ""
         lines.append(f"[{i}] {name}{ts_tag} {chat_preview(info, 80)}")
 
@@ -866,6 +884,215 @@ def handle_run(args, last_results, meta):
     cid = resolve_pick(args, last_results, meta, "/run")
     if cid is not None:
         run_chat(cid, meta)
+
+
+# /ls: list all chats newest->oldest in fzf, each line just the short summary.
+# Picking one opens it in ch. Respects the active
+# show_archived and time_filter toggles. No search, no reranking - just a list.
+# Queries the DB directly (not the embeddings-loaded meta) so unprocessed chats
+# (no summary/embedding yet) show up too, using their filename in place of a
+# summary.
+def list_chats_by_recency(conn, show_archived, time_filter):
+    """Return chat info dicts sorted newest->oldest by chat_epoch, filtered by
+    the active show_archived and time_filter settings. Chats with no epoch sort
+    last. Pulls every row from the DB (not just embedded ones), so unprocessed
+    chats appear too."""
+    lo, hi = range_bounds(time_filter) if time_filter else (None, None)
+    rows = conn.execute(
+        "SELECT id, file_path, summary, short_summary, last_message_epoch, archived, "
+        "LENGTH(raw) AS raw_size FROM chats"
+    ).fetchall()
+    out = []
+    for r in rows:
+        cid, file_path, summary, short_summary, epoch, archived, raw_size = r
+        if not show_archived and archived:
+            continue
+        info = {
+            "file_path": file_path,
+            "summary": summary,
+            "short_summary": short_summary,
+            "last_message_epoch": epoch,
+            "archived": bool(archived),
+            "raw_size": raw_size or 0,
+        }
+        e = chat_epoch(info)
+        if lo is not None and (e is None or e < lo or (hi is not None and e > hi)):
+            continue
+        out.append((cid, info, e))
+    out.sort(key=lambda x: (x[2] is None, -(x[2] or 0)))
+    return [(cid, info) for cid, info, _ in out]
+
+
+LS_HELP_TEXT = """\
+/ls keyboard shortcuts
+  Enter       pick a chat, then choose an action
+  Alt-j/k     scroll preview down/up
+  Alt-d/u     page preview down/up
+  Esc/Ctrl-C  exit
+  Type to fuzzy-filter the list
+"""
+
+# actions offered after picking a chat from /ls
+LS_ACTIONS = [
+    ("Open in ch (ch -f)", "run"),
+    ("Copy filename to clipboard", "copy"),
+    ("Exit/Cancel", "cancel"),
+]
+
+
+def pick_ls_action():
+    """fzf-pick what to do with a chat chosen via /ls. Returns one of 'run',
+    'copy', or 'cancel' (also 'cancel' if fzf is missing)."""
+    if shutil.which("fzf") is None:
+        print("fzf not found on PATH - cannot pick an action.")
+        return "cancel"
+    label_to_action = {label: action for label, action in LS_ACTIONS}
+    proc = subprocess.run(
+        ["fzf", "--prompt=action> ", "--cycle", "--layout=reverse"],
+        input="\n".join(label for label, _ in LS_ACTIONS),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return "cancel"
+    return label_to_action.get(proc.stdout.strip(), "cancel")
+
+
+def _fill_remaining_previews(cids, tmp_dir, db_path, stop_event):
+    """Daemon thread: sequentially compute previews for chats the Pool didn't
+    get to. Low-priority background fill so browsing the top of the list stays
+    instant while the long tail is prepared."""
+    conn = sqlite3.connect(db_path)
+    try:
+        for cid in cids:
+            if stop_event.is_set():
+                break
+            out_path = os.path.join(tmp_dir, f"ls_preview_{cid}.txt")
+            if os.path.exists(out_path):
+                continue
+            try:
+                text = preview_chat_with_conn(conn, cid)
+            except Exception:
+                text = "Preview error."
+            tmp_path = out_path + ".tmp"
+            with open(tmp_path, "w") as f:
+                f.write(text)
+            os.replace(tmp_path, out_path)
+    finally:
+        conn.close()
+
+
+def _cleanup_previews(tmp_dir):
+    """Delete all ls_preview_*.txt files from tmp_dir."""
+    for name in os.listdir(tmp_dir):
+        if name.startswith("ls_preview_") and name.endswith(".txt"):
+            try:
+                os.remove(os.path.join(tmp_dir, name))
+            except OSError:
+                pass
+
+
+def pick_latest_with_fzf(rows):
+    """fzf-pick one chat from a full newest->oldest list. Each line is
+    '[UTC timestamp] short summary', or '[UTC timestamp] filename' when the chat
+    has not been processed yet. The chat id is a hidden first tab-delimited
+    field. Returns (cid, info), or (None, None) if fzf is missing or the user
+    cancelled."""
+    if not rows:
+        print("No chats to list.")
+        return None, None
+    if shutil.which("fzf") is None:
+        print("fzf not found on PATH - install it to use /ls.")
+        return None, None
+
+    lines = []
+    for cid, info in rows:
+        ts = format_list_timestamp(chat_epoch(info))
+        ts_tag = f"[{ts}]" if ts else "[no date]"
+        short = " ".join((info.get("short_summary") or "").split())
+        label = short or os.path.basename(info["file_path"])
+        lines.append(f"{cid}\t{ts_tag} {label}")
+
+    info_map = dict(rows)
+    all_cids = [cid for cid, _ in rows]
+    os.environ["LS_TOTAL_CHATS"] = str(len(all_cids))
+
+    # precompute the most recent N previews in parallel before fzf opens so the
+    # top of the list is instant to browse; the rest are filled in the background.
+    # sort the batch largest-raw-first so big chats (slow json.loads) start early
+    # and are absorbed into the parallel work instead of straggling at the tail;
+    # chunksize=1 lets each worker grab one chat at a time dynamically.
+    batch_cids = all_cids[:PREVIEW_BATCH]
+    batch_by_size = sorted(
+        batch_cids, key=lambda c: info_map[c].get("raw_size", 0), reverse=True
+    )
+    pool_args = [(cid, TMP_DIR, DB_PATH) for cid in batch_by_size]
+    with Spinner(f"precomputing {len(batch_cids)} previews"):
+        with Pool(processes=min(len(batch_cids), os.cpu_count() or 4)) as pool:
+            pool.map(compute_and_save_preview, pool_args, chunksize=1)
+
+    # background fill the remaining previews while fzf is open
+    stop_event = threading.Event()
+    fill_cids = all_cids[PREVIEW_BATCH:]
+    fill_thread = threading.Thread(
+        target=_fill_remaining_previews,
+        args=(fill_cids, TMP_DIR, DB_PATH, stop_event),
+        daemon=True,
+    )
+    fill_thread.start()
+
+    # fzf preview: try the cached file first (instant), fall back to live preview.py
+    preview_script = os.path.join(os.path.dirname(__file__), "preview.py")
+    preview_cmd = (
+        f"cat {shlex.quote(TMP_DIR)}/ls_preview_{{1}}.txt 2>/dev/null"
+        f" || {shlex.quote(sys.executable)} {shlex.quote(preview_script)} {{1}}"
+    )
+
+    try:
+        proc = subprocess.run(
+            [
+                "fzf",
+                "--prompt=> ",
+                "--cycle",
+                "--layout=reverse",
+                "--no-separator",
+                "--delimiter=\t",
+                "--with-nth=2",
+                "--nth=2",
+                "--no-sort",
+                "--bind=alt-j:preview-down,alt-k:preview-up,alt-d:preview-page-down,alt-u:preview-page-up",
+                "--preview",
+                preview_cmd,
+                "--preview-window=right:60%:wrap:border-left",
+            ],
+            input="\n".join(lines),
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        stop_event.set()
+        fill_thread.join(timeout=2.0)
+        _cleanup_previews(TMP_DIR)
+
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None, None
+    cid = int(proc.stdout.strip().split("\t", 1)[0])
+    return cid, info_map[cid]
+
+
+def handle_ls(conn, show_archived, time_filter):
+    """List all chats newest->oldest in fzf (short summary per line). Picking
+    one opens a second fzf menu: open in ch, copy filename, or cancel."""
+    rows = list_chats_by_recency(conn, show_archived, time_filter)
+    cid, info = pick_latest_with_fzf(rows)
+    if cid is None:
+        return
+
+    action = pick_ls_action()
+    if action == "run":
+        run_chat(cid, {cid: info})
+    elif action == "copy":
+        copy_chat(cid, {cid: info})
 
 
 # /dump: merge picked chats, then save to ~/Downloads and/or resume in ch
@@ -1221,6 +1448,7 @@ results: {result_len}
 /run <n>       resume result n directly
 /dump, /d      pick result(s) and merge them into one file
 /dump <n> ...  dump result n (and more) directly
+/ls            browse all chats newest->oldest in fzf, pick one to open/copy
 /time, /t      pick a time window to scope searches to
 /time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
 /len, /l       show the current result count
@@ -1244,6 +1472,23 @@ def format_help(do_rerank, do_expand, time_filter, result_len, show_archived):
 
 
 if __name__ == "__main__":
+    startup_cmd = sys.argv[1].lower() if len(sys.argv) > 1 else None
+    if startup_cmd == "ls":
+        startup_cmd = "/ls"
+
+    # `retrieve.py ls` is a one-shot newest->oldest fzf list. It does not need
+    # embeddings, FTS, reranking, query expansion, or API warmup.
+    if startup_cmd == "/ls":
+        conn = get_connection()
+        backfill_message_epochs(conn)
+        backfill_archived(conn)
+        _startup_spinner.__exit__(None, None, None)
+        try:
+            handle_ls(conn, False, None)
+        finally:
+            conn.close()
+        sys.exit(0)
+
     # warm the API connections while the DB work below runs, so the first query
     # is not slowed by cold-start handshakes
     threading.Thread(target=warm_connections, daemon=True).start()
@@ -1266,8 +1511,14 @@ if __name__ == "__main__":
 
     while True:
         try:
-            prompt = f"[{time_filter_label(time_filter)}]> " if time_filter else "> "
-            query = input(prompt).strip()
+            if startup_cmd:
+                query = startup_cmd
+                startup_cmd = None
+            else:
+                prompt = (
+                    f"[{time_filter_label(time_filter)}]> " if time_filter else "> "
+                )
+                query = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -1307,6 +1558,9 @@ if __name__ == "__main__":
             continue
         if parts[0].lower() in ("/dump", "/d"):
             handle_dump(parts[1:], last_results, meta)
+            continue
+        if parts[0].lower() == "/ls":
+            handle_ls(conn, show_archived, time_filter)
             continue
         if parts[0].lower() in ("/time", "/t"):
             time_filter = handle_time(parts[1:], time_filter)
