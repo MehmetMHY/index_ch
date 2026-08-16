@@ -102,8 +102,9 @@ Three scripts, run in order, plus a shared config:
   first and falls back to live `preview.py` if not yet computed. All temp files
   are cleaned up in a `try/finally` when fzf exits (even on Ctrl-C). The
   `format_messages_limited` early-exit formatter stops once the transcript
-  exceeds `PREVIEW_LIMIT` chars, so long chats render as fast as short ones. It
-  queries all DB rows directly rather than the embeddings-loaded `meta`, so
+  exceeds `PREVIEW_LIMIT` chars, so long chats render as fast as short ones. The
+  preview header shows the number of turns (prompt & response pairs) in that
+  specific chat, not a global chat count. It queries all DB rows directly rather than the embeddings-loaded `meta`, so
   unprocessed chats appear too. It requires `fzf` and `ch` on PATH.
   `/view` writes the summary plus the full raw (unfiltered)
   transcript to a temp file under `src/cache/tmp/`, opens it in `$EDITOR` (falls
@@ -155,9 +156,9 @@ deliberate: `retrieve.py`'s `multiprocessing.Pool` targets
 `compute_and_save_preview` in `preview.py`, so each spawned worker only pays the
 light import cost (~50ms), not the full retrieve.py import stack (~2-3s). Its
 `format_messages_limited` early-exit formatter stops once the transcript exceeds
-`PREVIEW_LIMIT` chars, so long chats render as fast as short ones. It reads the
-`LS_TOTAL_CHATS` env var (set by `retrieve.py` before precompute) to include the
-total chat count in the preview header. It has a standalone CLI (`python3
+`PREVIEW_LIMIT` chars, so long chats render as fast as short ones. The preview
+header shows the number of turns (prompt & response pairs) in that specific
+chat, not a global chat count. It has a standalone CLI (`python3
 src/preview.py <id>`) used as the fzf fallback when a cached preview file does
 not exist yet.
 

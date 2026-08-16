@@ -66,14 +66,20 @@ def preview_chat_with_conn(conn, cid):
     name = os.path.basename(file_path)
     ts = format_timestamp(chat_epoch(file_path, last_message_epoch))
     status = "archived (source file gone)" if archived else "active"
-    total = os.environ.get("LS_TOTAL_CHATS", "")
-    total_line = f"{total} total chats" if total else ""
+
+    try:
+        data = json.loads(raw) if raw else None
+        messages = data.get("messages", []) if data else []
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        messages = []
+    turns = len(messages)
+    turns_line = f"{turns} turn{'s' if turns != 1 else ''}"
 
     parts = [
         name,
         ts,
         status,
-        total_line,
+        turns_line,
         "",
         "TL;DR:",
         "=" * 6,
@@ -88,16 +94,11 @@ def preview_chat_with_conn(conn, cid):
         "",
     ]
 
-    try:
-        data = json.loads(raw) if raw else None
-        messages = data.get("messages", []) if data else []
-        transcript = (
-            format_messages_limited(messages, skip_noise=False, limit=PREVIEW_LIMIT)
-            if messages
-            else ""
-        )
-    except (json.JSONDecodeError, AttributeError, TypeError):
-        transcript = ""
+    transcript = (
+        format_messages_limited(messages, skip_noise=False, limit=PREVIEW_LIMIT)
+        if messages
+        else ""
+    )
 
     if transcript:
         if len(transcript) > PREVIEW_LIMIT:

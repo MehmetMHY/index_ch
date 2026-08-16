@@ -1015,7 +1015,6 @@ def pick_latest_with_fzf(rows):
 
     info_map = dict(rows)
     all_cids = [cid for cid, _ in rows]
-    os.environ["LS_TOTAL_CHATS"] = str(len(all_cids))
 
     # precompute the most recent N previews in parallel before fzf opens so the
     # top of the list is instant to browse; the rest are filled in the background.
