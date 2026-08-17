@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>index_ch</title>
+    <meta
+      name="description"
+      content="index_ch turns your saved Ch conversations into a local, searchable memory. Semantic search for your local AI chat history."
+    />
+    <link rel="icon" href="./assets/icon.png" />
+    <script>
+      (function () {
+        var t = localStorage.getItem("theme") || "light";
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
+    <style>
+      :root {
+        --ink: #111;
+        --muted: #666;
+        --faint: #999;
+        --rule: #e5e5e5;
+        --code-bg: #ededed;
+        --code-ink: #151515;
+        --code-dim: #6f6f6f;
+        --code-acc: #287a4f;
+        --code-border: #d6d6d6;
+        --space-xs: 3px;
+        --space-sm: 10px;
+        --space-md: 18px;
+        --space-lg: 30px;
+        --logo-gap: 17.5px;
+        --mono:
+          ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+          monospace;
+        --sans:
+          system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0 auto;
+        padding: 56px 22px 72px;
+        max-width: 680px;
+        background: #fff;
+        color: var(--ink);
+        font: 16px/1.6 var(--sans);
+      }
+      ::selection {
+        background: #e8e8e8;
+      }
+      a {
+        color: var(--ink);
+        text-decoration: underline;
+        text-decoration-color: #bbb;
+        text-underline-offset: 3px;
+      }
+      a:hover {
+        text-decoration-color: var(--ink);
+      }
+      a:visited {
+        color: var(--ink);
+      }
+      a:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 2px;
+      }
+      h1 {
+        font-size: 30px;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        margin: var(--space-lg) 0 var(--space-lg);
+      }
+      h2 {
+        font-family: var(--mono);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        margin: var(--space-lg) 0 var(--space-sm);
+      }
+      h1 + h2 {
+        margin-top: 0;
+      }
+      h1::before {
+        content: "# ";
+        color: var(--ink);
+      }
+      h2::before {
+        content: "## ";
+        color: var(--ink);
+      }
+      p {
+        margin: 0 0 var(--space-sm);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .logo {
+        display: block;
+        margin: 0 auto;
+        width: 78px;
+        height: auto;
+      }
+      [data-theme="dark"] .logo {
+        filter: invert(1);
+      }
+      .links {
+        font-family: var(--mono);
+        font-size: 14px;
+        margin: var(--space-sm) 0 0;
+      }
+      .links .sep {
+        color: var(--muted);
+        font-weight: 900;
+        font-size: 1.5em;
+        vertical-align: middle;
+      }
+      pre {
+        background: var(--code-bg);
+        color: var(--code-ink);
+        border: 1px solid var(--code-border);
+        border-radius: 8px;
+        padding: 18px 20px;
+        margin: var(--space-md) 0 0;
+        font: 13px/1.75 var(--mono);
+        overflow-x: auto;
+      }
+      pre .dim {
+        color: var(--code-dim);
+      }
+      pre .acc {
+        color: var(--code-acc);
+      }
+      .cursor {
+        display: inline-block;
+        width: 8px;
+        height: 15px;
+        vertical-align: -3px;
+        background: var(--code-dim);
+        animation: blink 1.5s steps(1) infinite;
+      }
+      @keyframes blink {
+        0%,
+        49% {
+          opacity: 1;
+        }
+        50%,
+        100% {
+          opacity: 0;
+        }
+      }
+      ul,
+      ol {
+        margin: 0 0 var(--space-sm);
+        padding-left: 22px;
+      }
+      li {
+        margin: var(--space-xs) 0;
+      }
+      li strong {
+        font-weight: 600;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 13px;
+        background: #f4f4f4;
+        border: 1px solid var(--rule);
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+      footer {
+        margin-top: var(--space-lg);
+      }
+      footer p {
+        color: var(--faint);
+        font-size: 13px;
+        margin: 0;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+      [data-theme="dark"] {
+        --ink: #e8e8e8;
+        --muted: #999;
+        --faint: #666;
+        --rule: #333;
+        --code-bg: #242424;
+        --code-ink: #e8e8e8;
+        --code-dim: #8a8a8a;
+        --code-acc: #7fd6a4;
+        --code-border: #3a3a3a;
+      }
+      [data-theme="dark"] body {
+        background: #111;
+      }
+      [data-theme="dark"] ::selection {
+        background: #333;
+      }
+      [data-theme="dark"] a {
+        text-decoration-color: #555;
+      }
+      [data-theme="dark"] code {
+        background: #1a1a1a;
+      }
+      [data-theme="dark"] pre {
+        border: 1px solid var(--code-border);
+      }
+      .theme-btn {
+        font-family: inherit;
+        font-size: inherit;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        color: var(--ink);
+        text-decoration: underline;
+        text-decoration-color: #bbb;
+        text-underline-offset: 3px;
+      }
+      .theme-btn:hover {
+        text-decoration-color: var(--ink);
+      }
+      [data-theme="dark"] .theme-btn {
+        text-decoration-color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <img class="logo" src="./assets/wordmark.png" alt="index_ch logo" />
+
+    <h1>index_ch</h1>
+    <h2>about</h2>
+    <p class="tagline">
+      Search your
+      <a href="https://github.com/MehmetMHY/ch" target="_blank" rel="noopener"
+        >Ch</a
+      >
+      history by meaning! <code>index_ch</code> turns your saved Ch
+      conversations into a local, searchable memory so past answers, decisions,
+      debugging notes, and ideas are recoverable even when you don't remember
+      the exact words.
+    </p>
+    <p class="links">
+      <!-- TODO: replace with index_ch GitHub repo once ready -->
+      <a href="https://github.com/MehmetMHY/ch" target="_blank" rel="noopener"
+        >github</a
+      >
+      <span class="sep">·</span>
+      <!-- TODO: replace with index_ch docs once ready -->
+      <a
+        href="https://github.com/MehmetMHY/ch/blob/main/README.md"
+        target="_blank"
+        rel="noopener"
+        >get started</a
+      >
+      <span class="sep">·</span>
+      <button class="theme-btn" type="button">theme</button>
+    </p>
+
+    <pre
+      aria-label="Example index_ch session"
+    ><span class="dim">$</span> index_ch
+  query: where did I debug the auth redirect<span class="cursor"></span>
+
+<span class="acc">&gt;</span> OAuth redirect loop fix             nov 12   0.96
+  Database migration notes            oct 28   0.83
+  React state cleanup discussion      oct 03   0.77</pre>
+
+    <h2>why</h2>
+    <p>
+      Your best AI answers are easy to lose. When chats pile up, exact keyword
+      search is not enough. You remember the idea, the bug, or the decision, but
+      not the wording. index_ch retrieves the right conversation anyway.
+    </p>
+
+    <h2>features</h2>
+    <ul>
+      <li>
+        <strong>semantic search</strong>: find conversations by intent and
+        meaning, not just matching words
+      </li>
+      <li>
+        <strong>hybrid retrieval</strong>: meaning-based search plus keyword
+        matching for better recall
+      </li>
+      <li>
+        <strong>concise summaries</strong>: each chat becomes a readable preview
+        you can scan quickly
+      </li>
+      <li>
+        <strong>local cache</strong>: your index and generated metadata are
+        stored on your machine
+      </li>
+      <li>
+        <strong>chat browser</strong>: browse recent sessions and jump back in
+        when needed
+      </li>
+      <li>
+        <strong>terminal native</strong>: a CLI with a fuzzy-picking TUI, built
+        for keyboard-driven use
+      </li>
+    </ul>
+
+    <h2>how it works</h2>
+    <ol>
+      <li>
+        <strong>index</strong>: reads saved Ch sessions and strips noisy
+        generated content
+      </li>
+      <li>
+        <strong>process</strong>: builds summaries and searchable
+        representations of each conversation
+      </li>
+      <li>
+        <strong>retrieve</strong>: search interactively, browse results, open
+        old chats, copy references
+      </li>
+    </ol>
+
+    <h2>use cases</h2>
+    <p>Built for the moments you almost remember.</p>
+    <ul>
+      <li>find the chat where you solved a bug</li>
+      <li>recover an implementation plan from last week</li>
+      <li>look up a command or explanation you already asked for</li>
+      <li>browse old sessions by recency</li>
+      <li>collect related chats into a reusable context</li>
+    </ul>
+
+    <h2>privacy</h2>
+    <p>
+      Local-first by design. index_ch is a personal utility for your own
+      machine. It builds a local searchable cache from your saved Ch history
+      instead of turning it into a public web service. Some processing steps may
+      use configured AI services, but the searchable cache and chat index live
+      locally. index_ch is an independent local utility for Ch users.
+    </p>
+
+    <h2>get started</h2>
+    <p>
+      Give your Ch history a memory. Install it, run <code>index_ch init</code>,
+      and search your first session in under a minute. Your past answers are
+      closer than you think.
+    </p>
+
+    <footer></footer>
+    <script>
+      document.querySelectorAll(".theme-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var current = document.documentElement.getAttribute("data-theme");
+          var next = current === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", next);
+          localStorage.setItem("theme", next);
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -82,6 +82,10 @@ At the `>` prompt:
 - Type `/help` or `/h` to list all commands.
 - Type `quit` to exit.
 
+## Website
+
+A small project website lives in `./docs/` and gives a lighter, more polished introduction to `index_ch`. It is a good place to start if you want the high-level idea, the main features, and a quick overview of how the project works without reading the full CLI docs first.
+
 ## Notes
 
 - The path to the Ch chats (`~/.ch/tmp/`) is fixed and never modified.
