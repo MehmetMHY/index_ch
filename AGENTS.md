@@ -177,6 +177,18 @@ this picker existed. It uses `env/bin/python3` when a virtual environment
 exists (`env/` stays at the root), otherwise falls back to `python3`, and
 exits non-zero on the first script failure.
 
+`docs/` is the static project website (`index.html` plus `assets/`), unrelated
+to the Python pipeline. It is served by `docs/run.py`, a zero-dependency
+`http.server`-based dev server that localizes a canonical `<link rel=canonical>`
+origin so the page renders correctly offline, binds to `127.0.0.1` on the
+first free port in `8000`-`8099`, opens the browser, and stops on `Ctrl+C` /
+`Ctrl+D` / SIGTERM / SIGHUP. Do not confuse it with the root `run.py` (the CLI
+entrypoint). `docs/README.md` is the website's own README, not the project
+README; keep it in sync with `index.html`'s copy when features change. The
+website text is intentionally high-level (no model names, no schema details,
+no command flags); the root `README.md` and this file remain the source of
+truth for the CLI.
+
 ## Data and storage
 
 - All generated data lives in `src/cache/` (the database, the `.npz` embeddings

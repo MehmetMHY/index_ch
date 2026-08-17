@@ -102,7 +102,7 @@ def make_server(handler):
 def main():
     parser = argparse.ArgumentParser(
         prog="run.py",
-        description="Local dev server for the E&F Group Inc. website.",
+        description="Local dev server for the index_ch website.",
     )
     parser.add_argument(
         "-n",

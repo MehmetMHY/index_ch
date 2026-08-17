@@ -267,12 +267,20 @@
 
     <pre
       aria-label="Example index_ch session"
-    ><span class="dim">$</span> index_ch
-  query: where did I debug the auth redirect<span class="cursor"></span>
+    ><span class="dim">$</span> python3 src/retrieve.py
+Loaded 5,432 indexed chats
+Type a query or /help
+<span class="acc">&gt;</span> where did I debug the auth redirect
 
-<span class="acc">&gt;</span> OAuth redirect loop fix             nov 12   0.96
-  Database migration notes            oct 28   0.83
-  React state cleanup discussion      oct 03   0.77</pre>
+1. ch_session_1731391200.json · Nov 12, 2025 09:45 UTC · relevance 3/3
+   Fixed an OAuth redirect loop by validating the callback state before
+   the token exchange.
+
+2. ch_session_1729886400.json · Oct 25, 2025 16:40 UTC · relevance 2/3
+   Database migration notes for the new archived flag column.
+
+3. ch_session_1725432000.json · Sep 04, 2025 12:00 UTC · relevance 1/3
+   React state cleanup; removing stale effect deps.</pre>
 
     <h2>why</h2>
     <p>
@@ -346,9 +354,12 @@
 
     <h2>get started</h2>
     <p>
-      Give your Ch history a memory. Install it, run <code>index_ch init</code>,
-      and search your first session in under a minute. Your past answers are
-      closer than you think.
+      Give your Ch history a memory. Install it, run
+      <code>python3 src/build.py</code> to index your chats,
+      <code>python3 src/process.py</code> to summarize and embed them, then
+      <code>python3 src/retrieve.py</code> to search. Or use
+      <code>python3 run.py</code> to pick a mode interactively. Your past
+      answers are closer than you think.
     </p>
 
     <footer></footer>

@@ -21,19 +21,13 @@ Your best AI answers are easy to lose. When chats pile up, exact keyword search 
 
 ## How It Works
 
-1. **index**: reads saved Ch sessions and strips noisy generated content
-2. **process**: builds summaries and searchable representations of each conversation
-3. **retrieve**: search interactively, browse results, open old chats, copy references
+1. **build**: reads saved Ch sessions from `~/.ch/tmp/`, strips noisy generated content (code dumps, file pastes, command output), and stores cleaned text in a local SQLite database. New files are added, changed files are re-ingested in place, and deleted source files are flagged `archived` (kept, not dropped, since you paid for their summaries and embeddings).
+2. **process**: summarizes each chat (`gpt-5.4-nano`), condenses that into a 1-2 sentence blurb for the search results, and embeds the summary (`text-embedding-3-small`). Each step is skipped when its column is already filled, so re-running never redoes work you already paid for.
+3. **retrieve**: an interactive search prompt. Optionally expands your query into a few variants (Groq `openai/gpt-oss-20b`), embeds the original plus variants in one batched call, runs vector search and FTS5 keyword search per query, fuses every ranking with Reciprocal Rank Fusion, reranks the top candidates (Groq `openai/gpt-oss-120b`) against the original query, and shows the top 5 with UTC timestamps from each chat's last message. Also has `/ls` (browse newest->oldest with a right-side preview), `/view`, `/copy`, `/run`, `/dump`, `/time`, `/len`, and toggle flags like `:fast`, `:expand`, `:archived`.
 
 ## Run Site
 
 ```sh
 # starts a local dev server, opens the page in the browser, & press `Ctrl+C` to stop/kill it
-python3 run.py
+python3 docs/run.py
 ```
-
-## Sources/Credits
-
-- [Qwen Studio](https://chat.qwen.ai/) by [Qwen](https://qwen.ai/)
-- [ChatGPT](https://chatgpt.com/) for image generation and logos
-- [tinygrad.org](https://tinygrad.org/)

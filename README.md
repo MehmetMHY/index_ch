@@ -86,6 +86,14 @@ At the `>` prompt:
 
 A small project website lives in `./docs/` and gives a lighter, more polished introduction to `index_ch`. It is a good place to start if you want the high-level idea, the main features, and a quick overview of how the project works without reading the full CLI docs first.
 
+Run it locally with the included dev server (opens your browser, `Ctrl+C` to stop):
+
+```bash
+python3 docs/run.py
+```
+
+`docs/run.py` is a standalone HTTP server (no dependencies) that serves `docs/index.html` and its `docs/assets/`. It is unrelated to the root `run.py`, which is the project's CLI entrypoint.
+
 ## Notes
 
 - The path to the Ch chats (`~/.ch/tmp/`) is fixed and never modified.
