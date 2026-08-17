@@ -183,11 +183,15 @@ to the Python pipeline. It is served by `docs/run.py`, a zero-dependency
 origin so the page renders correctly offline, binds to `127.0.0.1` on the
 first free port in `8000`-`8099`, opens the browser, and stops on `Ctrl+C` /
 `Ctrl+D` / SIGTERM / SIGHUP. Do not confuse it with the root `run.py` (the CLI
-entrypoint). `docs/README.md` is the website's own README, not the project
-README; keep it in sync with `index.html`'s copy when features change. The
-website text is intentionally high-level (no model names, no schema details,
-no command flags); the root `README.md` and this file remain the source of
-truth for the CLI.
+entrypoint). The website text is intentionally high-level (no model names, no
+schema details, no command flags); the root `README.md` and this file remain
+the source of truth for the CLI. `index.html` includes an animated demo
+terminal that types out a sample `retrieve.py` session when scrolled into
+view (respects `prefers-reduced-motion`, replays on scroll-in past a 3-minute
+cooldown); the demo box has a fixed height so it never shifts the page as it
+fills, and its horizontal scroll is hidden but available via touch-swipe on
+mobile and click-drag on desktop (pointer-capture, 6px threshold so clicks and
+text selection are not disturbed).
 
 ## Data and storage
 

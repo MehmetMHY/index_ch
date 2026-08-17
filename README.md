@@ -1,10 +1,25 @@
 # index_ch
 
+> WARNING: this project is a rough prototype and needs further work until `index_ch` is published.
+
 ## About
 
 A small add-on for [Ch](https://github.com/MehmetMHY/ch) that indexes your saved Ch chat history and lets you search it by meaning, not just keywords.
 
 It reads the chat JSON files that Ch stores under `~/.ch/tmp/`, cleans them, summarizes and embeds each one with OpenAI, and stores everything in a local SQLite database. You can then run a hybrid search (vector + keyword) with LLM reranking to find the chats most relevant to a question.
+
+## Why
+
+Your best AI answers are easy to lose. When chats pile up, exact keyword search is not enough. You remember the idea, the bug, or the decision, but not the wording. `index_ch` retrieves the right conversation anyway.
+
+## Features
+
+- **semantic search**: find conversations by intent and meaning, not just matching words
+- **hybrid retrieval**: meaning-based search plus keyword matching for better recall
+- **concise summaries**: each chat becomes a readable preview you can scan quickly
+- **local cache**: your index and generated metadata are stored on your machine
+- **chat browser**: browse recent sessions and jump back in when needed
+- **terminal native**: a CLI with a fuzzy-picking TUI, built for keyboard-driven use
 
 ## How it works
 
