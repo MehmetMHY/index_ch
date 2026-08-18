@@ -8,7 +8,7 @@
 
 A small add-on for [Ch](https://github.com/MehmetMHY/ch) that indexes your saved Ch chat history and lets you search it by meaning, not just keywords.
 
-It reads the chat JSON files that Ch stores under `~/.ch/tmp/`, cleans them, summarizes and embeds each one with OpenAI, and stores everything in a local SQLite database. You can then run a hybrid search (vector + keyword) with LLM reranking to find the chats most relevant to a question.
+> It reads the chat JSON files that Ch stores under `~/.ch/tmp/`, cleans them, summarizes and embeds each one with OpenAI, and stores everything in a local SQLite database. You can then run a hybrid search (vector + keyword) with LLM reranking to find the chats most relevant to a question.
 
 ## Why
 
@@ -122,4 +122,5 @@ python3 docs/run.py
 
 ## License
 
-[MIT](./LICENSE) - Copyright (c) 2026 Mehmet Yilmaz.
+This project is licensed under the **MIT License**. See [LICENSE](./LICENSE) for details.
+
