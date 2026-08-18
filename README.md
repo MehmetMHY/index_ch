@@ -1,7 +1,5 @@
 # index_ch
 
-> WARNING: this project is a rough prototype and needs further work until `index_ch` is published.
-
 ## About
 
 A small add-on for [Ch](https://github.com/MehmetMHY/ch) that indexes your saved Ch chat history and lets you search it by meaning, not just keywords.
@@ -117,3 +115,7 @@ python3 docs/run.py
 - `process.py` runs many requests in parallel. Set the worker count with `WORKERS=128 python3 src/process.py`.
 - If a chat fails to process, the error is recorded in the database and skipped on later runs. Retry those with `RETRY_ERRORS=1 python3 src/process.py`.
 - Chats larger than the model input limit are summarized with a map-reduce pass (summarize each chunk, then summarize the summaries).
+
+## License
+
+[MIT](./LICENSE) - Copyright (c) 2026 Mehmet Yilmaz.

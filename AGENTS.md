@@ -283,6 +283,8 @@ unprompted.
 - Paths are centralized in `config.py` so scripts work from any directory. Do not
   hardcode absolute paths or reintroduce per-script path constants.
 - Match the existing style of the file you are editing (naming, spacing, idiom).
+- Licensed under the MIT License (see `LICENSE`); preserve the copyright notice on
+  distribution.
 
 ## Gotchas
 
