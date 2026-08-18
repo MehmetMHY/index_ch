@@ -59,6 +59,7 @@ def stop_startup_spinner():
         _startup_spinner.__exit__(None, None, None)
         _startup_spinner = None
 
+
 import numpy as np
 import httpx
 from pydantic import BaseModel, Field
