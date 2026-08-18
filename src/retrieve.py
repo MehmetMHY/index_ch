@@ -49,8 +49,15 @@ class Spinner:
 
 
 # start the spinner before the slow imports (numpy, openai, httpx, pydantic)
-_startup_spinner = Spinner()
+_startup_spinner = Spinner("Starting search...")
 _startup_spinner.__enter__()
+
+
+def stop_startup_spinner():
+    global _startup_spinner
+    if _startup_spinner is not None:
+        _startup_spinner.__exit__(None, None, None)
+        _startup_spinner = None
 
 import numpy as np
 import httpx
@@ -196,7 +203,7 @@ def ensure_fts(conn):
     signature = f"{count}:{latest}"
     stored = conn.execute("SELECT signature FROM fts_state WHERE id = 1").fetchone()
     if stored is None or stored[0] != signature:
-        print("Updating search index...")
+        print("Updating search index...", flush=True)
         conn.execute("INSERT INTO chats_fts(chats_fts) VALUES('rebuild')")
         conn.execute(
             "INSERT INTO fts_state(id, signature) VALUES(1, ?) "
@@ -865,7 +872,10 @@ def run_chat(cid, meta):
     if meta[cid].get("archived"):
         print(f"Note: {name} is archived (source file gone); ch -f may fail.")
     print(f"Opening {name} in ch...")
-    subprocess.run(["ch", "-f", name])
+    result = subprocess.run(["ch", "-f", name])
+    if result.returncode != 0:
+        print(f"ch exited with status {result.returncode}.")
+    print("Type a query or /help")
 
 
 def handle_view(args, last_results, meta, conn):
@@ -1218,8 +1228,9 @@ def load_dump_in_ch(merged, filename, keep, skipped):
 
     n = len(merged["source_files"])
     print(f"Opening merged dump of {n} chat(s) in ch...")
+    result = None
     try:
-        subprocess.run(["ch", "-f", tmp_path])
+        result = subprocess.run(["ch", "-f", tmp_path])
     finally:
         if not os.path.exists(tmp_path):
             pass  # ch moved/consumed it (unexpected) - nothing to clean up
@@ -1231,6 +1242,9 @@ def load_dump_in_ch(merged, filename, keep, skipped):
             print(f"Saved merged dump to {out_path}.")
         else:
             os.remove(tmp_path)
+    if result is not None and result.returncode != 0:
+        print(f"ch exited with status {result.returncode}.")
+    print("Type a query or /help")
     report_skipped(skipped)
 
 
@@ -1481,7 +1495,7 @@ if __name__ == "__main__":
         conn = get_connection()
         backfill_message_epochs(conn)
         backfill_archived(conn)
-        _startup_spinner.__exit__(None, None, None)
+        stop_startup_spinner()
         try:
             handle_ls(conn, False, None)
         finally:
@@ -1495,9 +1509,9 @@ if __name__ == "__main__":
     conn = get_connection()
     backfill_message_epochs(conn)  # one-time; no-op once the column exists
     backfill_archived(conn)  # one-time; no-op once the column exists
+    stop_startup_spinner()
     ensure_fts(conn)
     ids, mat, meta = load_vectors(conn)
-    _startup_spinner.__exit__(None, None, None)
     do_rerank = True
     do_expand = NUM_EXPANSIONS > 0
     show_archived = False

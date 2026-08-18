@@ -18,8 +18,8 @@ root, as the entrypoint. The imports between the modules are flat (`from config 
 `from build import ...`), which works because they are run as scripts (Python
 puts the script's own dir on `sys.path`), not as an installed package. Do not
 add an `__init__.py` or convert them to a package, or those imports break. The
-generated `cache/` dir lives at `src/cache/` because `config.py` anchors it to
-its own `__file__`; moving `config.py` moves the cache with it.
+generated index data lives at `~/.ch/index/`; `config.py` refuses to run unless
+both `~/.ch/` and `~/.ch/tmp/` already exist.
 
 Three scripts, run in order, plus a shared config:
 
@@ -107,13 +107,15 @@ Three scripts, run in order, plus a shared config:
   specific chat, not a global chat count. It queries all DB rows directly rather than the embeddings-loaded `meta`, so
   unprocessed chats appear too. It requires `fzf` and `ch` on PATH.
   `/view` writes the summary plus the full raw (unfiltered)
-  transcript to a temp file under `src/cache/tmp/`, opens it in `$EDITOR` (falls
+  transcript to a temp file under `~/.ch/index/tmp/`, opens it in `$EDITOR` (falls
   back to `vim`), and deletes the file the moment the editor exits; any
   in-editor edits/saves are never persisted anywhere. `/copy` copies just the
   chat's filename (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
   `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
-  resume that session inside Ch, handing over the terminal until Ch exits.
+  resume that session inside Ch, handing over the terminal until Ch exits; on
+  return it reprints `Type a query or /help` so the prompt is not bare (and
+  surfaces a non-zero `ch` exit status if any).
   `/dump` merges the picked chats' messages into a single ch-resumable log:
   chats are ordered oldest to newest (by `chat_epoch`), each chat's own
   messages stay together and in order (no interleaving), and every message is
@@ -126,17 +128,19 @@ Three scripts, run in order, plus a shared config:
   selecting, a second fzf menu (`pick_dump_action`, `DUMP_ACTIONS`) chooses the
   destination: `Save to $HOME/Downloads/` writes
   `~/Downloads/index_ch_dump_<chat_count>_<epoch>.json`; `Load into Ch
-(Temporary)` writes the log to `src/cache/tmp/` and resumes it via
+(Temporary)` writes the log to `~/.ch/index/tmp/` and resumes it via
   `ch -f <full path>` (Ch's `-f` accepts an absolute path, not just a bare
   filename), deleting the temp file when Ch exits; `Load in Ch & save to
 Downloads` does the same but moves the temp file to `~/Downloads` on exit
   instead of deleting it; `Exit/Cancel` does nothing. The temp
-  write/resume/cleanup runs in a `try/finally` so the `src/cache/tmp/` file is
+  write/resume/cleanup runs in a `try/finally` so the `~/.ch/index/tmp/` file is
   never orphaned, even on Ctrl-C. `unique_path` appends `_<n>` before the
   extension if a `~/Downloads` target name already exists, so a save never
   silently overwrites. The destination menu requires `fzf` (prints an error and
   aborts the dump if missing, even when the chats were picked by number), and
-  the two "Load" options require `ch` on PATH. Skips unreadable files with a
+  the two "Load" options require `ch` on PATH. Like `/run`, both "Load"
+  options reprint `Type a query or /help` (and a non-zero `ch` exit status, if
+  any) after Ch exits. Skips unreadable files with a
   printed warning. The chat picker itself requires `fzf` (degrades to a message
   telling the user to pass a number if it's missing); `/run` requires `ch` on
   PATH.
@@ -163,11 +167,17 @@ src/preview.py <id>`) used as the fzf fallback when a cached preview file does
 not exist yet.
 
 `run.py` (at the repo root) is a convenience wrapper around the `src/` scripts.
+It preflights `~/.ch/` and `~/.ch/tmp/` (matching `config.py`'s guard) before
+showing the menu, exiting non-zero with the Ch install URL if either is missing.
 `pick_action` fzf-picks one of `Browse Chats` (`retrieve.py ls`, a one-shot
 `/ls` startup mode that exits after the fzf list instead of loading search
 vectors or warming API connections), `Smart Search` (`retrieve.py` only),
 `Update Cache` (`build.py` + `process.py`), or `Exit Session` (does nothing);
-cancelling the picker (Esc/Ctrl-C) also does nothing.
+cancelling the picker (Esc/Ctrl-C) also does nothing. Before spawning each
+script it prints a one-line status (`Scanning Ch exports...`,
+`Processing pending chats...`, `Opening smart search...`, or
+`Opening chat browser...` for `ls`) so the launcher never sits silent while a
+child process imports.
 There is no flag-based bypass - unlike `retrieve.py`'s pickers, which degrade
 to "pass a number" when `fzf` is missing, `run.py` has no non-interactive
 alternative to fall back to, so it degrades by running the full pipeline
@@ -195,15 +205,14 @@ text selection are not disturbed).
 
 ## Data and storage
 
-- All generated data lives in `src/cache/` (the database, the `.npz` embeddings
-  cache, SQLite journal/WAL sidecars, `src/cache/tmp/` scratch files for
-  `retrieve.py`'s `/view`, and `src/cache/tmp/ls_preview_*.txt` files for
+- All generated data lives in `~/.ch/index/` (the database, the `.npz` embeddings
+  cache, SQLite journal/WAL sidecars, `~/.ch/index/tmp/` scratch files for
+  `retrieve.py`'s `/view`, and `~/.ch/index/tmp/ls_preview_*.txt` files for
   `/ls`'s precomputed fzf previews). It is created automatically by `config.py`
-  and is gitignored (the `cache/` pattern is un-anchored, so it matches at
-  `src/cache/` too). Never commit it.
+  only after `~/.ch/` and `~/.ch/tmp/` already exist.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
-  `src/cache/chats.db` means a full rebuild and re-processing.
+  `~/.ch/index/chats.db` means a full rebuild and re-processing.
 - Schema changes are done as additive, idempotent migrations that read only
   existing data, never via a full rebuild: `process.py`'s `migrate` adds
   summary/short_summary/embedding/error; `build.py`'s `backfill_message_epochs` adds and
@@ -271,9 +280,8 @@ unprompted.
 - No em dashes in the README or AGENTS.md.
 - Pricing is keyed by model in `config.PRICING` as `(input, output)` per 1M
   tokens, with a `estimate_cost` helper. Keep price and model together.
-- Paths are always derived from `__file__` via `config.py` so scripts work from
-  any directory. Do not hardcode absolute paths or reintroduce per-script path
-  constants.
+- Paths are centralized in `config.py` so scripts work from any directory. Do not
+  hardcode absolute paths or reintroduce per-script path constants.
 - Match the existing style of the file you are editing (naming, spacing, idiom).
 
 ## Gotchas

@@ -3,8 +3,21 @@ import os
 # anchored to this file so scripts work from any directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# all generated data lives here
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
+CH_DIR = os.path.join(os.path.expanduser("~"), ".ch")
+CHATS_SOURCE_DIR = os.path.join(CH_DIR, "tmp")
+CACHE_DIR = os.path.join(CH_DIR, "index")
+
+if not os.path.isdir(CH_DIR):
+    raise SystemExit(
+        "error: ~/.ch/ does not exist. Install Ch and configure local mode first: "
+        "https://github.com/MehmetMHY/ch"
+    )
+if not os.path.isdir(CHATS_SOURCE_DIR):
+    raise SystemExit(
+        "error: ~/.ch/tmp/ does not exist. Install Ch and configure local mode first: "
+        "https://github.com/MehmetMHY/ch"
+    )
+
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # scratch space for retrieve.py's /view command; files are deleted right after use
@@ -12,7 +25,6 @@ TMP_DIR = os.path.join(CACHE_DIR, "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
 
 # paths
-CHATS_SOURCE_DIR = os.path.join(os.path.expanduser("~"), ".ch/tmp/")
 DB_PATH = os.path.join(CACHE_DIR, "chats.db")
 EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
 

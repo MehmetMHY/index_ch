@@ -5,6 +5,8 @@ import sys
 import os
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+CH_DIR = os.path.join(os.path.expanduser("~"), ".ch")
+CHATS_SOURCE_DIR = os.path.join(CH_DIR, "tmp")
 
 SRC_DIR = os.path.join(ROOT_DIR, "src")
 BUILD_SCRIPT = os.path.join(SRC_DIR, "build.py")
@@ -21,6 +23,29 @@ RUN_ACTIONS = [
     ("Update Cache", "update"),
     ("Exit Session", "exit"),
 ]
+
+SCRIPT_LABELS = {
+    BUILD_SCRIPT: "Scanning Ch exports...",
+    PROCESS_SCRIPT: "Processing pending chats...",
+    GET_SCRIPT: "Opening smart search...",
+}
+
+
+def require_ch_dirs():
+    if not os.path.isdir(CH_DIR):
+        print(
+            "error: ~/.ch/ does not exist. Install Ch and configure local mode first: "
+            "https://github.com/MehmetMHY/ch",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not os.path.isdir(CHATS_SOURCE_DIR):
+        print(
+            "error: ~/.ch/tmp/ does not exist. Install Ch and configure local mode first: "
+            "https://github.com/MehmetMHY/ch",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def pick_action():
@@ -44,6 +69,9 @@ def pick_action():
 
 def run_scripts(scripts):
     for i, script in enumerate(scripts):
+        label = SCRIPT_LABELS.get(script)
+        if label:
+            print(label, flush=True)
         cmd = f"{PY_CALL} {script}"
         status = os.system(cmd)
         if status != 0:
@@ -55,11 +83,13 @@ def run_scripts(scripts):
 
 
 if __name__ == "__main__":
+    require_ch_dirs()
     action = pick_action()
     if action == "retrieve":
         run_scripts([GET_SCRIPT])
     elif action == "ls":
         # launch retrieve.py with a startup command so it runs /ls on launch
+        print("Opening chat browser...", flush=True)
         cmd = f"{PY_CALL} {GET_SCRIPT} ls"
         status = os.system(cmd)
         if status != 0:
