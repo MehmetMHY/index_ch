@@ -1,8 +1,6 @@
-<div align="left">
-  <img src="./docs/assets/icon.png" width="175">
+<div align="center">
+  <img src="./docs/assets/icon.png" width="150">
 </div>
-
-<br>
 
 # index_ch
 
