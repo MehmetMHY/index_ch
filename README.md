@@ -1,3 +1,9 @@
+<div align="left">
+  <img src="./docs/assets/icon.png" width="175">
+</div>
+
+<br>
+
 # index_ch
 
 ## About
