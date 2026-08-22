@@ -228,6 +228,7 @@ selection are not disturbed).
 
 ## Setup and commands
 
+API keys needed: [OpenAI](https://openai.com/api/) (`OPENAI_API_KEY`) and [Groq](https://console.groq.com/docs/quickstart) (`GROQ_API_KEY`).
 `retrieve.py`'s `/view`, `/copy`, `/run`, `/dump`, and `/time` pickers need
 `fzf` on PATH (not a pip package; install separately, e.g. `brew install fzf`).
 All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
