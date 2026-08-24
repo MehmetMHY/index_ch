@@ -121,6 +121,7 @@ python3 docs/run.py
 - `process.py` runs many requests in parallel. Set the worker count with `WORKERS=128 python3 src/process.py`.
 - If a chat fails to process, the error is recorded in the database and skipped on later runs. Retry those with `RETRY_ERRORS=1 python3 src/process.py`.
 - Chats larger than the model input limit are summarized with a map-reduce pass (summarize each chunk, then summarize the summaries).
+- Code formatting is handled by [fm](https://github.com/MehmetMHY/fm), a versatile CLI formatter for shell, Python, JavaScript, C/C++, Go, Rust, Swift, and more.
 
 ## License
 
