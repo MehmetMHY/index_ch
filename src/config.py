@@ -20,7 +20,7 @@ if not os.path.isdir(CHATS_SOURCE_DIR):
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# scratch space for retrieve.py's /view command; files are deleted right after use
+# scratch space for retrieve's /view command; files are deleted right after use
 TMP_DIR = os.path.join(CACHE_DIR, "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
 
@@ -29,7 +29,7 @@ DB_PATH = os.path.join(CACHE_DIR, "chats.db")
 EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
 
 # models. build.py/process.py stay on OpenAI (the stored embeddings define the
-# vector space and cannot change provider). retrieve.py's two LLM steps (rerank,
+# vector space and cannot change provider). retrieve's two LLM steps (rerank,
 # query expansion) run on Groq for speed and cost; it reaches Groq through the
 # OpenAI-compatible endpoint below. embeddings always stay on OpenAI.
 SUMMARY_MODEL = "gpt-5.4-nano"  # process.py (OpenAI)

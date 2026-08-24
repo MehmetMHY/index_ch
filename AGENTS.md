@@ -12,20 +12,27 @@ search with LLM reranking.
 
 ## Architecture
 
-All Python modules live in `src/` (`build.py`, `process.py`, `retrieve.py`,
-`config.py`, `input_time.py`, `preview.py`); only `run.py` sits at the repo
-root, as the entrypoint. The imports between the modules are flat (`from config import ...`,
+All Python modules live in `src/` (`build.py`, `process.py`, `config.py`,
+`input_time.py`, `preview.py`, and the `retrieve/` package); only `run.py` sits
+at the repo root, as the entrypoint. The flat modules (`build.py`, `process.py`,
+etc.) import each other by bare name (`from config import ...`,
 `from build import ...`), which works because they are run as scripts (Python
 puts the script's own dir on `sys.path`), not as an installed package. Do not
-add an `__init__.py` or convert them to a package, or those imports break. The
-generated index data lives at `~/.ch/index/`; `config.py` refuses to run unless
-both `~/.ch/` and `~/.ch/tmp/` already exist.
+add an `__init__.py` to `src/` itself or convert the flat modules to a package,
+or those imports break. The `retrieve/` sub-package is an intentional exception:
+it is a proper Python package (`src/retrieve/` with `__init__.py`) run via
+`python3 -m retrieve` with `src/` on `PYTHONPATH`, and its internal imports are
+explicit relative (`from .search import ...`, `from ..display import ...`).
+Flat siblings are still imported absolutely (`import config`,
+`from build import ...`) from within the package. The generated index data lives
+at `~/.ch/index/`; `config.py` refuses to run unless both `~/.ch/` and
+`~/.ch/tmp/` already exist.
 
 Three scripts, run in order, plus a shared config:
 
 - `config.py` is the single source of truth for paths, models, pricing, and all
   tunables. Change models or prices here, nowhere else. Two providers: OpenAI
-  for embeddings and `process.py` (summaries), Groq for `retrieve.py`'s rerank
+  for embeddings and `process.py` (summaries), Groq for `retrieve`'s rerank
   and query expansion (reached via its OpenAI-compatible endpoint,
   `GROQ_BASE_URL`). Embeddings must stay on OpenAI: the stored vectors are
   `text-embedding-3-small`, and the query has to embed in the same space, so
@@ -41,7 +48,7 @@ Three scripts, run in order, plus a shared config:
   (clearing summary/embedding so process.py redoes just them), unchanged files
   are skipped. A chat whose source file vanished from `~/.ch/tmp/` is never
   deleted (its summary/embedding/raw are cached and were paid for): it is
-  flagged `archived = 1` and bumped `updated_at` so retrieve.py's caches
+  flagged `archived = 1` and bumped `updated_at` so retrieve's caches
   rebuild. A file that reappears (archived=1 but back on disk) is un-archived,
   and if its hash also changed it is re-ingested via the changed path (which
   clears the flag). Only rows not already archived are flipped, so a steady-
@@ -54,7 +61,7 @@ Three scripts, run in order, plus a shared config:
   column is already filled, so adding a column never re-summarizes or re-embeds
   what is already paid for. `save` only writes the embedding when that run
   computed one, so a short-summary-only pass cannot clobber existing vectors.
-- `retrieve.py` is an interactive prompt. Per query it optionally expands the
+- `retrieve` is an interactive prompt. Per query it optionally expands the
   query into a few variants (Groq `openai/gpt-oss-20b`, structured output),
   embeds the original plus variants in one batched call (OpenAI
   `text-embedding-3-small`), runs vector search and FTS5 keyword search per
@@ -146,19 +153,38 @@ Downloads` does the same but moves the temp file to `~/Downloads` on exit
   PATH.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
-`retrieve.py` import it. `retrieve.py` owns its own FTS5 index and embeddings
+`retrieve` import it. `retrieve` owns its own FTS5 index and embeddings
 cache and rebuilds them automatically when the data changes.
 
+The `retrieve` package is split into focused modules under `src/retrieve/`:
+`spinner.py` (stdlib-only animated spinner), `state.py` (`Session` dataclass
+holding the REPL's shared state, passed to every handler), `models.py`
+(pydantic schemas for rerank/expansion), `cache.py` (FTS5 index + embeddings
+cache), `search.py` (OpenAI/Groq clients, vector search, RRF fusion, rerank,
+query expansion, the top-level `search()` function), `display.py` (formatting,
+timestamps, blurbs, help text), `actions.py` (`/view`, `/copy`, `/run` action
+helpers), `pickers.py` (fzf pickers and arg resolution), `cli.py` (the REPL
+loop and `main()`), and `cmds/` (command handlers: `ls.py` for `/ls` + `/purge`,
+`dump.py` for `/dump`, `simple.py` for `/view` `/copy` `/run` `/time` `/len`).
+`__main__.py` starts the spinner before importing `cli` (which triggers the
+slow numpy/openai/httpx/pydantic imports), then delegates to `main()`.
+`__init__.py` is deliberately empty so it does not front-run the spinner.
+The dependency direction is strictly layered:
+`__main__ -> cli -> cmds/* -> {display, pickers, search, actions} -> {cache, models, state}`,
+so circular imports are structurally impossible. Intra-package imports are
+explicit relative (`from .search import ...`, `from ..display import ...`);
+flat siblings are still `import config` / `from build import ...`.
+
 `input_time.py` is a standalone curses UTC calendar range picker
-(`pick_time_range() -> (start, end) | None`) that `retrieve.py` imports for the
+(`pick_time_range() -> (start, end) | None`) that `retrieve` imports for the
 `/time custom` absolute range. It has no project dependencies of its own.
 
 `preview.py` is the lightweight fzf preview helper for `/ls`. It imports only
 `build` (for `format_messages` and `is_auto_entry`) and `config` (for `DB_PATH`
-and `PREVIEW_LIMIT`), never `retrieve.py` or numpy/openai/httpx/pydantic. This is
-deliberate: `retrieve.py`'s `multiprocessing.Pool` targets
+and `PREVIEW_LIMIT`), never `retrieve` or numpy/openai/httpx/pydantic. This is
+deliberate: `retrieve`'s `multiprocessing.Pool` targets
 `compute_and_save_preview` in `preview.py`, so each spawned worker only pays the
-light import cost (~50ms), not the full retrieve.py import stack (~2-3s). Its
+light import cost (~50ms), not the full retrieve import stack (~2-3s). Its
 `format_messages_limited` early-exit formatter stops once the transcript exceeds
 `PREVIEW_LIMIT` chars, so long chats render as fast as short ones. The preview
 header shows the number of turns (prompt & response pairs) in that specific
@@ -169,16 +195,16 @@ not exist yet.
 `run.py` (at the repo root) is a convenience wrapper around the `src/` scripts.
 It preflights `~/.ch/` and `~/.ch/tmp/` (matching `config.py`'s guard) before
 showing the menu, exiting non-zero with the Ch install URL if either is missing.
-`pick_action` fzf-picks one of `Browse Chats` (`retrieve.py ls`, a one-shot
+`pick_action` fzf-picks one of `Browse Chats` (`retrieve ls`, a one-shot
 `/ls` startup mode that exits after the fzf list instead of loading search
-vectors or warming API connections), `Smart Search` (`retrieve.py` only),
+vectors or warming API connections), `Smart Search` (`retrieve` only),
 `Update Cache` (`build.py` + `process.py`), or `Exit Session` (does nothing);
 cancelling the picker (Esc/Ctrl-C) also does nothing. Before spawning each
 script it prints a one-line status (`Scanning Ch exports...`,
 `Processing pending chats...`, `Opening smart search...`, or
 `Opening chat browser...` for `ls`) so the launcher never sits silent while a
 child process imports.
-There is no flag-based bypass - unlike `retrieve.py`'s pickers, which degrade
+There is no flag-based bypass - unlike `retrieve`'s pickers, which degrade
 to "pass a number" when `fzf` is missing, `run.py` has no non-interactive
 alternative to fall back to, so it degrades by running the full pipeline
 (build + process + retrieve) instead, with a printed note - this keeps headless
@@ -196,7 +222,7 @@ first free port in `8000`-`8099`, opens the browser, and stops on `Ctrl+C` /
 entrypoint). The website text is intentionally high-level (no model names, no
 schema details, no command flags); the root `README.md` and this file remain
 the source of truth for the CLI. `index.html` includes an animated demo
-terminal that types out a sample `retrieve.py` session when scrolled into
+terminal that types out a sample `retrieve` session when scrolled into
 view (plays once on load/scroll-in, then stops indefinitely until refreshed);
 the demo box has a fixed height so it never shifts the page as it fills, and
 its horizontal scroll is hidden but available via touch-swipe on mobile and
@@ -207,7 +233,7 @@ selection are not disturbed).
 
 - All generated data lives in `~/.ch/index/` (the database, the `.npz` embeddings
   cache, SQLite journal/WAL sidecars, `~/.ch/index/tmp/` scratch files for
-  `retrieve.py`'s `/view`, and `~/.ch/index/tmp/ls_preview_*.txt` files for
+  `retrieve`'s `/view`, and `~/.ch/index/tmp/ls_preview_*.txt` files for
   `/ls`'s precomputed fzf previews). It is created automatically by `config.py`
   only after `~/.ch/` and `~/.ch/tmp/` already exist.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
@@ -229,7 +255,7 @@ selection are not disturbed).
 ## Setup and commands
 
 API keys needed: [OpenAI](https://openai.com/api/) (`OPENAI_API_KEY`) and [Groq](https://console.groq.com/docs/quickstart) (`GROQ_API_KEY`).
-`retrieve.py`'s `/view`, `/copy`, `/run`, `/dump`, and `/time` pickers need
+`retrieve`'s `/view`, `/copy`, `/run`, `/dump`, and `/time` pickers need
 `fzf` on PATH (not a pip package; install separately, e.g. `brew install fzf`).
 All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 
@@ -237,14 +263,14 @@ All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt   # httpx, numpy, openai, pydantic
-export OPENAI_API_KEY="..."        # embeddings (process.py + retrieve.py)
-export GROQ_API_KEY="..."          # retrieve.py rerank + query expansion
+export OPENAI_API_KEY="..."        # embeddings (process.py + retrieve)
+export GROQ_API_KEY="..."          # retrieve rerank + query expansion
 python3 src/build.py               # ingest new chats
 python3 src/process.py             # summarize + embed (calls OpenAI, costs money)
-python3 src/retrieve.py            # interactive search
+python3 -m retrieve            # interactive search (from src/ or PYTHONPATH=src)
 ```
 
-`retrieve.py` reaches Groq with the same `openai` SDK, just a second client
+`retrieve` reaches Groq with the same `openai` SDK, just a second client
 pointed at `GROQ_BASE_URL` (see `groq_client`). If `GROQ_API_KEY` is unset,
 rerank and expansion fail and degrade gracefully (hybrid order / original query
 only) rather than erroring, but retrieval quality drops, so treat it as
@@ -265,9 +291,9 @@ mutate or corrupt data.
 
 ## Cost awareness
 
-`process.py` makes paid OpenAI calls; `retrieve.py` makes a paid OpenAI
+`process.py` makes paid OpenAI calls; `retrieve` makes a paid OpenAI
 embedding call plus paid Groq rerank/expansion calls. A full `process.py`
-backfill of ~5600 chats costs roughly $6-7; each `retrieve.py` query costs a
+backfill of ~5600 chats costs roughly $6-7; each `retrieve` query costs a
 fraction of a cent (a few tenths, mostly the Groq rerank). Do not trigger a full
 re-process or bulk API calls without a clear reason. When testing API-touching
 code, prefer a single call or a small sample, and do not run the full pipeline
@@ -303,13 +329,13 @@ unprompted.
   `embed_queries` batches the original query and all variants into one
   embeddings request (order restored via `.index`), so expansion adds a single
   nano LLM call but no extra embedding round trips.
-- `retrieve.py`'s FTS index and embeddings cache invalidate on a signature of
+- `retrieve`'s FTS index and embeddings cache invalidate on a signature of
   row count plus latest `updated_at`. If you change how rows are updated, make
   sure that signature still changes so the caches rebuild.
 - `process.py` shuts its thread pool down manually (not via `with`) so Ctrl-C
   exits promptly. Keep that pattern if you touch the concurrency code.
 - A chat's displayed timestamp and `/time` filtering both use `chat_epoch(info)`
-  in `retrieve.py`: the `last_message_epoch` column (the last message's own
+  in `retrieve`: the `last_message_epoch` column (the last message's own
   `time` field), falling back to the filename epoch (`filename_epoch`, regex
   `ch_session_<epoch>`) only when it is NULL. Neither uses the DB `created_at`
   (ingest time) nor file mtime. The filename epoch alone is wrong for resumed/
@@ -317,7 +343,7 @@ unprompted.
   used yesterday can look days old. `build.py` computes `last_message_epoch` at
   ingest (`message_epoch`); `backfill_message_epochs` populates it for existing
   DBs from the stored `raw` JSON (one-time, idempotent, no API calls) and is
-  called at the start of both `build.py` and `retrieve.py`.
+  called at the start of both `build.py` and `retrieve`.
 - Resumed chats stay current via the `content_hash` diff in `build.py`: when a
   session gains messages after ingest, its file hash changes, so the next
   `build.py` re-ingests it (`update_entries`) and clears summary/embedding so
@@ -356,8 +382,8 @@ unprompted.
   it costs nothing in retrieval quality.
 - `build.py`'s `format_messages(messages, skip_noise=...)` is shared: `skip_noise=True`
   is the `cleaned` text `load_and_clean` stores, `skip_noise=False` is what
-  `retrieve.py`'s `/view` shows as the raw transcript. Keep noise-filtering
-  logic in this one function rather than duplicating it in `retrieve.py`.
+  `retrieve`'s `/view` shows as the raw transcript. Keep noise-filtering
+  logic in this one function rather than duplicating it in `retrieve`.
 - A chat flagged `archived = 1` (source file gone from `~/.ch/tmp/`) is kept
   forever: its `summary`, `short_summary`, `embedding`, and `raw` are all
   cached in the DB, so search and `/view` keep working for it with no disk
@@ -367,7 +393,7 @@ unprompted.
   flag is additive (`backfill_archived`, DEFAULT 0, no data scan) so existing
   paid rows are untouched; only `build.py`'s disk reconciliation ever sets it,
   and only for rows not already flagged (so a steady-state build does not bump
-  `updated_at` and needlessly invalidate `retrieve.py`'s caches). `/purge` is
+  `updated_at` and needlessly invalidate `retrieve`'s caches). `/purge` is
   the only path that drops archived rows: it `DELETE`s every `archived = 1`
   chat after an fzf confirmation ("No" first so a bare Enter is safe; both
   choice labels carry the row count so the user sees the blast radius), then the caller reloads `ids/mat/meta` via `load_vectors` and

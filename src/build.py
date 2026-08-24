@@ -187,7 +187,7 @@ def backfill_archived(conn):
     or API call happens here. build.py's main loop sets archived = 1 for rows
     whose source file vanished from ~/.ch/tmp/; deleted chats stay searchable
     (their summary/embedding/raw are cached in the DB) but are flagged so
-    retrieve.py can hide them by default and warn on /run, /dump, /copy.
+    retrieve can hide them by default and warn on /run, /dump, /copy.
     """
     cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
     if "archived" in cols:
@@ -231,7 +231,7 @@ def update_entries(conn, entries):
     """Re-ingest changed chats in place. entries: (file_path, result, hash).
 
     Clears summary/embedding/error (when those columns exist) so process.py
-    re-summarizes and re-embeds the chat, and bumps updated_at so retrieve.py's
+    re-summarizes and re-embeds the chat, and bumps updated_at so retrieve's
     FTS and embeddings caches rebuild.
     """
     entries = list(entries)
@@ -297,7 +297,7 @@ if __name__ == "__main__":
     # a chat whose source file vanished from ~/.ch/tmp/ is flagged archived but
     # never deleted (its summary/embedding/raw are cached and paid for). only
     # flip rows that are not already archived, so a steady-state build does not
-    # bump updated_at and needlessly invalidate retrieve.py's caches. a file that
+    # bump updated_at and needlessly invalidate retrieve's caches. a file that
     # reappears (archived=1 but back on disk) is un-archived; if its hash also
     # changed it is re-ingested via changed_paths (which clears archived too).
     now = datetime.now(timezone.utc).isoformat()

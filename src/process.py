@@ -55,7 +55,7 @@ COMBINE_PROMPT = (
     "preamble, just the summary."
 )
 
-# one-line blurb shown in retrieve.py's results, condensed from the long summary
+# one-line blurb shown in retrieve's results, condensed from the long summary
 # (not the raw chat) so the backfill is cheap. leads with the topic because the
 # long summaries tend to open with boilerplate like "The user asked ...".
 SHORT_SUMMARY_PROMPT = (

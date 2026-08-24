@@ -31,13 +31,13 @@ The project is three scripts, run in order:
 
 2. `process.py` summarizes each chat with `gpt-5.4-nano`, condenses that summary into a 1-2 sentence blurb (also `gpt-5.4-nano`) for the search results, and embeds the summary with `text-embedding-3-small`, saving all three back to the database. Each step is skipped when its column is already filled, so it is resumable and re-running never redoes work you already paid for.
 
-3. `retrieve.py` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps run on Groq for speed (`openai/gpt-oss-20b` for expansion, `openai/gpt-oss-120b` for reranking), while embeddings stay on OpenAI.
+3. `retrieve` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps run on Groq for speed (`openai/gpt-oss-20b` for expansion, `openai/gpt-oss-120b` for reranking), while embeddings stay on OpenAI.
 
-The Python scripts live in `src/`, with `run.py` at the repo root as a convenience entrypoint. The database and a small embeddings cache are stored in `~/.ch/index/`, next to Ch's own local data.
+The Python scripts live in `src/`, with `run.py` at the repo root as a convenience entrypoint. `retrieve` is a package (`src/retrieve/`) run via `python3 -m retrieve` with `src/` on the path. The database and a small embeddings cache are stored in `~/.ch/index/`, next to Ch's own local data.
 
 ## Setup
 
-Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve.py`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by `retrieve.py`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` and `/ls` to resume a session).
+Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` and `/ls` to resume a session).
 
 Create a virtual environment and install dependencies:
 
@@ -56,8 +56,10 @@ Build and process the database, then search:
 ```bash
 python3 src/build.py
 python3 src/process.py
-python3 src/retrieve.py
+python3 -m retrieve
 ```
+
+Run `retrieve` from the `src/` directory, or set `PYTHONPATH=src`. The convenience entrypoint (`python3 run.py`) handles this automatically.
 
 Or use the convenience entrypoint:
 
@@ -76,10 +78,10 @@ python3 src/build.py
 python3 src/process.py
 ```
 
-Then search:
+Then search (from the `src/` directory, or with `PYTHONPATH=src`):
 
 ```bash
-python3 src/retrieve.py
+python3 -m retrieve
 ```
 
 At the `>` prompt:

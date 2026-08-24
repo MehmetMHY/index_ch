@@ -11,7 +11,8 @@ CHATS_SOURCE_DIR = os.path.join(CH_DIR, "tmp")
 SRC_DIR = os.path.join(ROOT_DIR, "src")
 BUILD_SCRIPT = os.path.join(SRC_DIR, "build.py")
 PROCESS_SCRIPT = os.path.join(SRC_DIR, "process.py")
-GET_SCRIPT = os.path.join(SRC_DIR, "retrieve.py")
+# retrieve is a package (src/retrieve/), invoked via -m with src/ on PYTHONPATH
+RETRIEVE_MODULE = "retrieve"
 
 PY_CALL = os.path.join(ROOT_DIR, "env/bin/python3")
 if not os.path.isfile(PY_CALL):
@@ -27,7 +28,7 @@ RUN_ACTIONS = [
 SCRIPT_LABELS = {
     BUILD_SCRIPT: "Scanning Ch exports...",
     PROCESS_SCRIPT: "Processing pending chats...",
-    GET_SCRIPT: "Opening smart search...",
+    RETRIEVE_MODULE: "Opening smart search...",
 }
 
 
@@ -72,8 +73,14 @@ def run_scripts(scripts):
         label = SCRIPT_LABELS.get(script)
         if label:
             print(label, flush=True)
-        cmd = f"{PY_CALL} {script}"
-        status = os.system(cmd)
+        if script is RETRIEVE_MODULE:
+            cmd = f"{PY_CALL} -m {script}"
+            env = os.environ.copy()
+            env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
+            status = subprocess.run(cmd, shell=True, env=env).returncode
+        else:
+            cmd = f"{PY_CALL} {script}"
+            status = os.system(cmd)
         if status != 0:
             print(f"error: '{cmd}' command failed with status {status}")
             sys.exit(1)
@@ -86,17 +93,20 @@ if __name__ == "__main__":
     require_ch_dirs()
     action = pick_action()
     if action == "retrieve":
-        run_scripts([GET_SCRIPT])
+        run_scripts([RETRIEVE_MODULE])
     elif action == "ls":
-        # launch retrieve.py with a startup command so it runs /ls on launch
+        # launch retrieve with a startup command so it runs /ls on launch
         print("Opening chat browser...", flush=True)
-        cmd = f"{PY_CALL} {GET_SCRIPT} ls"
-        status = os.system(cmd)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
+        status = subprocess.run(
+            [PY_CALL, "-m", RETRIEVE_MODULE, "ls"], env=env
+        ).returncode
         if status != 0:
-            print(f"error: '{cmd}' command failed with status {status}")
+            print(f"error: retrieve ls failed with status {status}")
             sys.exit(1)
     elif action == "update":
         run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT])
     elif action == "update_retrieve":
-        run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT, GET_SCRIPT])
+        run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT, RETRIEVE_MODULE])
     sys.exit(0)

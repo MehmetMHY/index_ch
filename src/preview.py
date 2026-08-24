@@ -121,7 +121,7 @@ def preview_chat(cid):
 
 def compute_and_save_preview(args):
     """Pool worker: compute one preview and write it atomically to
-    tmp_dir/ls_preview_<id>.txt. Lives in preview.py (not retrieve.py) so the
+    tmp_dir/ls_preview_<id>.txt. Lives in preview.py (not retrieve) so the
     multiprocessing spawn only imports build+config, not numpy/openai/httpx."""
     cid, tmp_dir, db_path = args
     out_path = os.path.join(tmp_dir, f"ls_preview_{cid}.txt")
