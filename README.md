@@ -123,6 +123,10 @@ python3 docs/run.py
 - Chats larger than the model input limit are summarized with a map-reduce pass (summarize each chunk, then summarize the summaries).
 - Code formatting is handled by [fm](https://github.com/MehmetMHY/fm), a versatile CLI formatter for shell, Python, JavaScript, C/C++, Go, Rust, Swift, and more.
 
+## Tests
+
+A local unit test suite lives in `tests/` and runs with `python3 -m pytest`. The tests make no API calls: all OpenAI/Groq interactions are mocked, DB tests use in-memory SQLite, and filesystem tests use temp dirs. The suite covers pure functions (truncation, RRF fusion, epoch parsing, noise filtering), defensive validation (hallucinated ID dropping in rerank, graceful fallbacks in query expansion), DB operations (migrations, FTS5, embeddings cache), and command handlers (`/len` range validation, `/time` token parsing, `/purge` confirmation gate, `/dump` merge ordering).
+
 ## License
 
 This project is licensed under the **MIT License**. See [LICENSE](./LICENSE) for details.

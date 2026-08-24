@@ -262,7 +262,7 @@ All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 ```bash
 python3 -m venv env
 source env/bin/activate
-pip install -r requirements.txt   # httpx, numpy, openai, pydantic
+pip install -r requirements.txt   # httpx, numpy, openai, pydantic, pytest, pytest-mock
 export OPENAI_API_KEY="..."        # embeddings (process.py + retrieve)
 export GROQ_API_KEY="..."          # retrieve rerank + query expansion
 python3 src/build.py               # ingest new chats
@@ -285,9 +285,23 @@ Useful env vars for `process.py`:
 - `RETRY_ERRORS=1 python3 src/process.py` re-attempts chats parked in the `error`
   column.
 
-There is no test suite. Verify changes by compiling (`python3 -m py_compile`)
-and by testing on a copy of the database, not the real one, when a change could
-mutate or corrupt data.
+There is a local unit test suite under `tests/` (run with `python3 -m pytest`).
+Always run the unit tests after making changes to verify everything stays
+backwards-compatible and regression-free. The tests make no API calls: all
+OpenAI/Groq client interactions are mocked via `unittest.mock.patch`, DB tests
+use in-memory `sqlite3` (`:memory:`), and filesystem tests use pytest's `tmp_path`.
+A `conftest.py` at module level sets `HOME` to a temp dir (creating `~/.ch/tmp/`
+inside it) and sets a dummy `GROQ_API_KEY` so `config.py` and `search.py` import
+cleanly without the real Ch install or API keys. Shared fixtures (`db_conn`,
+`db_with_chats`, `sample_meta`, `sample_ids`, `sample_mat`, `sample_session`)
+provide deterministic test data. The suite covers pure functions (truncation,
+RRF fusion, epoch parsing, token estimation, noise filtering), defensive
+validation (hallucinated ID dropping in rerank, graceful fallbacks in
+expand_query, dangling word removal in truncate), DB operations (migrations,
+insert/update/backfill, FTS5, embeddings cache), and command handlers
+(`/len` range validation, `/time` token parsing, `/purge` confirmation gate,
+`/dump` merge ordering and skip logic). For changes that could mutate or
+corrupt data, also test on a copy of the database, not the real one.
 
 ## Cost awareness
 
