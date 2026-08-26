@@ -21,6 +21,25 @@ from .cmds.simple import (
 )
 
 
+def _drain_stdin():
+    """Discard keystrokes typed while the startup spinner / slow imports ran.
+
+    Without this, anything the user typed during loading sits in the terminal
+    input buffer and gets fed to the first input() call - either firing an
+    unintended search (which then looks frozen while it makes API calls) or
+    silently prefixing the user's real query. No-op when stdin is not a TTY
+    (e.g. piped input) or termios is unavailable (non-Unix).
+    """
+    if not sys.stdin.isatty():
+        return
+    try:
+        import termios
+
+        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except (ImportError, OSError, ValueError):
+        pass
+
+
 def main(argv=None):
     """Entry point for the interactive search REPL."""
     argv = argv or sys.argv[1:]
@@ -35,8 +54,11 @@ def main(argv=None):
         backfill_message_epochs(conn)
         backfill_archived(conn)
         stop_startup_spinner()
+        _drain_stdin()
         try:
             handle_ls(conn, False, None)
+        except KeyboardInterrupt:
+            print()
         finally:
             conn.close()
         return 0
@@ -49,8 +71,18 @@ def main(argv=None):
     backfill_message_epochs(conn)  # one-time; no-op once the column exists
     backfill_archived(conn)  # one-time; no-op once the column exists
     stop_startup_spinner()
-    ensure_fts(conn)
-    ids, mat, meta = load_vectors(conn)
+    # drain anything typed during the spinner / slow imports before the DB
+    # setup prints anything, so junk does not glue onto the "Updating search
+    # index..." line; drained again before the first prompt for junk typed
+    # during the rebuild itself
+    _drain_stdin()
+    try:
+        ensure_fts(conn)
+        ids, mat, meta = load_vectors(conn)
+    except KeyboardInterrupt:
+        print()
+        conn.close()
+        return 0
 
     session = Session(
         conn=conn,
@@ -68,6 +100,7 @@ def main(argv=None):
     print(f"Loaded {n:,} indexed chat{'s' if n != 1 else ''}")
     print("Type a query or /help")
 
+    _drain_stdin()
     while True:
         try:
             if startup_cmd:

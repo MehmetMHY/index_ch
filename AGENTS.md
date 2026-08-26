@@ -168,6 +168,13 @@ loop and `main()`), and `cmds/` (command handlers: `ls.py` for `/ls` + `/purge`,
 `dump.py` for `/dump`, `simple.py` for `/view` `/copy` `/run` `/time` `/len`).
 `__main__.py` starts the spinner before importing `cli` (which triggers the
 slow numpy/openai/httpx/pydantic imports), then delegates to `main()`.
+`cli.main` drains stdin (`_drain_stdin`, `termios.tcflush(TCIFLUSH)`) twice:
+right after the startup spinner stops (before `ensure_fts` prints anything,
+so junk typed during loading does not glue onto the "Updating search
+index..." line) and again right before the first `input()` prompt (for junk
+typed during the FTS rebuild / vector load). The DB setup (`ensure_fts` +
+`load_vectors`) is wrapped in `try/except KeyboardInterrupt` so `^C` during
+that window exits cleanly instead of dumping a traceback.
 `__init__.py` is deliberately empty so it does not front-run the spinner.
 The dependency direction is strictly layered:
 `__main__ -> cli -> cmds/* -> {display, pickers, search, actions} -> {cache, models, state}`,
