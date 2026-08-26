@@ -210,7 +210,11 @@ cancelling the picker (Esc/Ctrl-C) also does nothing. Before spawning each
 script it prints a one-line status (`Scanning Ch exports...`,
 `Processing pending chats...`, `Opening smart search...`, or
 `Opening chat browser...` for `ls`) so the launcher never sits silent while a
-child process imports.
+child process imports. `Update Cache` asks `confirm_return_to_menu` (fzf
+`return to menu? >`, default `No` on a bare Enter, matching `/purge`'s gate)
+_before_ the long-running build+process, so the flow is hands-off once
+decided; `Yes` returns to the main menu after it finishes, anything else
+exits. The other actions exit after one run.
 There is no flag-based bypass - unlike `retrieve`'s pickers, which degrade
 to "pass a number" when `fzf` is missing, `run.py` has no non-interactive
 alternative to fall back to, so it degrades by running the full pipeline

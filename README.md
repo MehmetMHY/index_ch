@@ -67,7 +67,7 @@ Or use the convenience entrypoint:
 python3 run.py
 ```
 
-This fzf-picks what to run: `Browse Chats` (launches a one-shot `/ls` fzf browser of chats newest->oldest with a right-side preview), `Smart Search`, `Update Cache` (`build.py` & `process.py`), or `Exit Session`. It uses the `env/` virtual environment if it exists, otherwise falls back to `python3`, and stops on the first failure. If `fzf` isn't installed, it skips the menu and runs the full update & retrieve pipeline.
+This fzf-picks what to run: `Browse Chats` (launches a one-shot `/ls` fzf browser of chats newest->oldest with a right-side preview), `Smart Search`, `Update Cache` (`build.py` & `process.py`), or `Exit Session`. It uses the `env/` virtual environment if it exists, otherwise falls back to `python3`, and stops on the first failure. If `fzf` isn't installed, it skips the menu and runs the full update & retrieve pipeline. After picking `Update Cache`, it asks (fzf, default No on a bare Enter) whether to return to the main menu afterward, before running the update.
 
 You can also run each step individually.
 

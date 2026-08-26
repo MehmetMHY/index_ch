@@ -68,6 +68,25 @@ def pick_action():
     return label_to_action.get(proc.stdout.strip(), "exit")
 
 
+# "No" first so a bare Enter is safe, matching /purge's confirmation gate.
+RETURN_NO = "No"
+RETURN_YES = "Yes"
+
+
+def confirm_return_to_menu():
+    """Ask whether to go back to the main fzf menu after an action. Returns
+    True for Yes, False for No, cancel, or when fzf is missing."""
+    if shutil.which("fzf") is None:
+        return False
+    proc = subprocess.run(
+        ["fzf", "--prompt=return to menu? > ", "--cycle"],
+        input="\n".join([RETURN_NO, RETURN_YES]),
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0 and proc.stdout.strip() == RETURN_YES
+
+
 def run_scripts(scripts):
     for i, script in enumerate(scripts):
         label = SCRIPT_LABELS.get(script)
@@ -91,22 +110,30 @@ def run_scripts(scripts):
 
 if __name__ == "__main__":
     require_ch_dirs()
-    action = pick_action()
-    if action == "retrieve":
-        run_scripts([RETRIEVE_MODULE])
-    elif action == "ls":
-        # launch retrieve with a startup command so it runs /ls on launch
-        print("Opening chat browser...", flush=True)
-        env = os.environ.copy()
-        env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
-        status = subprocess.run(
-            [PY_CALL, "-m", RETRIEVE_MODULE, "ls"], env=env
-        ).returncode
-        if status != 0:
-            print(f"error: retrieve ls failed with status {status}")
-            sys.exit(1)
-    elif action == "update":
-        run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT])
-    elif action == "update_retrieve":
-        run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT, RETRIEVE_MODULE])
+    while True:
+        action = pick_action()
+        if action == "retrieve":
+            run_scripts([RETRIEVE_MODULE])
+            break
+        elif action == "ls":
+            # launch retrieve with a startup command so it runs /ls on launch
+            print("Opening chat browser...", flush=True)
+            env = os.environ.copy()
+            env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
+            status = subprocess.run(
+                [PY_CALL, "-m", RETRIEVE_MODULE, "ls"], env=env
+            ).returncode
+            if status != 0:
+                print(f"error: retrieve ls failed with status {status}")
+                sys.exit(1)
+            break
+        elif action == "update":
+            # ask before the long-running build+process so the flow is hands-off
+            return_to_menu = confirm_return_to_menu()
+            run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT])
+            if not return_to_menu:
+                break
+        elif action == "update_retrieve":
+            run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT, RETRIEVE_MODULE])
+            break
     sys.exit(0)
