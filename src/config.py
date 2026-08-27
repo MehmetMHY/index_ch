@@ -27,6 +27,7 @@ os.makedirs(TMP_DIR, exist_ok=True)
 # paths
 DB_PATH = os.path.join(CACHE_DIR, "chats.db")
 EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
+PRICING_CACHE_PATH = os.path.join(CACHE_DIR, "pricing_cache.json")
 
 # models. build.py/process.py stay on OpenAI (the stored embeddings define the
 # vector space and cannot change provider). retrieve's two LLM steps (rerank,
@@ -40,21 +41,21 @@ RERANK_EFFORT = "low"
 QUERY_EXPANSION_MODEL = "openai/gpt-oss-20b"  # Groq, a simple rewrite
 QUERY_EXPANSION_EFFORT = "low"
 
-# Pricing per model as (input, output) in USD per 1M tokens. Used only for the
-# cost estimates the scripts print; update these if a model or its price changes.
-# Embeddings have no output tokens, so their output price is 0.
-# OpenAI: https://openai.com/business/pricing/  Groq: https://groq.com/pricing
-PRICING = {
-    SUMMARY_MODEL: (0.20, 1.25),
-    EMBEDDING_MODEL: (0.02, 0.0),
-    "openai/gpt-oss-120b": (0.15, 0.60),  # Groq rerank
-    "openai/gpt-oss-20b": (0.075, 0.30),  # Groq query expansion
+# Which models.dev provider serves each model. Used by pricing.py to look up
+# the right entry in the catalog (model ids are not unique across providers).
+# OpenAI serves bare ids; Groq serves the openai/gpt-oss-* ids.
+MODEL_PROVIDER = {
+    SUMMARY_MODEL: "openai",
+    EMBEDDING_MODEL: "openai",
+    RERANK_MODEL: "groq",
+    QUERY_EXPANSION_MODEL: "groq",
 }
 
-
-def estimate_cost(model, input_tokens=0, output_tokens=0):
-    price_in, price_out = PRICING[model]
-    return input_tokens / 1e6 * price_in + output_tokens / 1e6 * price_out
+# Pricing is fetched from https://models.dev/api.json and cached locally at
+# PRICING_CACHE_PATH (see pricing.py). TTL is a soft upper bound: a lookup
+# also refreshes when a model is missing or its entry looks broken, regardless
+# of age. Prices change rarely, so a few days is plenty.
+PRICING_TTL = 6 * 86_400  # 6 days, in seconds
 
 
 # processing

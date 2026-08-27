@@ -114,7 +114,7 @@ def save_dump_to_downloads(merged, filename, skipped):
     os.makedirs(out_dir, exist_ok=True)
     out_path = unique_path(os.path.join(out_dir, filename))
     with open(out_path, "w") as f:
-        json.dump(merged, f, indent=2)
+        json.dump(merged, f, indent=4)
     n = len(merged["source_files"])
     print(f"Saved {n} chat(s) ({len(merged['messages'])} messages) to {out_path}.")
     report_skipped(skipped)
@@ -130,7 +130,7 @@ def load_dump_in_ch(merged, filename, keep, skipped):
 
     tmp_path = os.path.join(TMP_DIR, filename)
     with open(tmp_path, "w") as f:
-        json.dump(merged, f, indent=2)
+        json.dump(merged, f, indent=4)
 
     n = len(merged["source_files"])
     print(f"Opening merged dump of {n} chat(s) in ch...")

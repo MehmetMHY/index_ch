@@ -16,8 +16,8 @@ from config import (
     COMMIT_EVERY,
     PRINT_EVERY,
     MAX_INPUT_CHARS,
-    estimate_cost,
 )
+from pricing import estimate_cost, warm
 
 # these calls are network bound (waiting on OpenAI), not cpu bound, so threads
 # run truly in parallel here (the GIL is released during I/O) and are faster and
@@ -247,11 +247,13 @@ def fmt_duration(seconds):
 
 
 def print_summary(done, errors, runtime, tok):
-    cost = (
-        estimate_cost(SUMMARY_MODEL, tok["summary_in"], tok["summary_out"])
-        + estimate_cost(SUMMARY_MODEL, tok["short_in"], tok["short_out"])
-        + estimate_cost(EMBEDDING_MODEL, tok["embed_in"])
-    )
+    costs = [
+        estimate_cost(SUMMARY_MODEL, tok["summary_in"], tok["summary_out"]),
+        estimate_cost(SUMMARY_MODEL, tok["short_in"], tok["short_out"]),
+        estimate_cost(EMBEDDING_MODEL, tok["embed_in"]),
+    ]
+    cost = sum(costs) if all(c is not None for c in costs) else None
+    cost_str = "?" if cost is None else f"${cost:.4f}"
     total = sum(tok.values())
 
     print("=" * 48)
@@ -263,12 +265,17 @@ def print_summary(done, errors, runtime, tok):
     print(f"  short output tokens  : {tok['short_out']:>12,}")
     print(f"  embedding tokens     : {tok['embed_in']:>12,}")
     print(f"  total tokens         : {total:>12,}")
-    print(f"  estimated cost       : ${cost:>11.4f}")
+    print(f"  estimated cost       : {cost_str:>12}")
     print("=" * 48)
 
 
 if __name__ == "__main__":
     start_time = time.time()
+
+    # warm the pricing cache eagerly so a no-op run (nothing to process) still
+    # refreshes it; otherwise estimate_cost is only reached via print_summary,
+    # which is skipped when total == 0.
+    warm()
 
     conn = get_connection()
     migrate(conn)

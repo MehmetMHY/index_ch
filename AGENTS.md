@@ -13,7 +13,7 @@ search with LLM reranking.
 ## Architecture
 
 All Python modules live in `src/` (`build.py`, `process.py`, `config.py`,
-`input_time.py`, `preview.py`, and the `retrieve/` package); only `run.py` sits
+`pricing.py`, `input_time.py`, `preview.py`, and the `retrieve/` package); only `run.py` sits
 at the repo root, as the entrypoint. The flat modules (`build.py`, `process.py`,
 etc.) import each other by bare name (`from config import ...`,
 `from build import ...`), which works because they are run as scripts (Python
@@ -30,11 +30,14 @@ at `~/.ch/index/`; `config.py` refuses to run unless both `~/.ch/` and
 
 Three scripts, run in order, plus a shared config:
 
-- `config.py` is the single source of truth for paths, models, pricing, and all
-  tunables. Change models or prices here, nowhere else. Two providers: OpenAI
-  for embeddings and `process.py` (summaries), Groq for `retrieve`'s rerank
-  and query expansion (reached via its OpenAI-compatible endpoint,
-  `GROQ_BASE_URL`). Embeddings must stay on OpenAI: the stored vectors are
+- `config.py` is the single source of truth for paths, models, and all
+  tunables. Change models here, nowhere else. Pricing is no longer hardcoded
+  here: `pricing.py` fetches it from the [models.dev](https://models.dev/)
+  catalog (an open-source model catalog maintained by the
+  [Opencode](https://opencode.ai/) CLI team) and caches it locally. Two
+  providers: OpenAI for embeddings and `process.py` (summaries), Groq for
+  `retrieve`'s rerank and query expansion (reached via its OpenAI-compatible
+  endpoint, `GROQ_BASE_URL`). Embeddings must stay on OpenAI: the stored vectors are
   `text-embedding-3-small`, and the query has to embed in the same space, so
   the embedding model/provider cannot change without a full re-embed. Groq has
   no embedding model anyway. Any replacement rerank/expansion model must support
@@ -199,6 +202,30 @@ chat, not a global chat count. It has a standalone CLI (`python3
 src/preview.py <id>`) used as the fzf fallback when a cached preview file does
 not exist yet.
 
+`pricing.py` fetches model prices from `https://models.dev/api.json` and caches
+the flattened catalog at `~/.ch/index/pricing_cache.json` (atomic write: write
+`.tmp`, rename, `indent=4`). The cache stores `fetched_at` as both an epoch int
+and an ISO 8601 UTC string. `PRICING_TTL` (6 days, in `config.py`) is a soft
+upper bound: a lookup also triggers a refresh when the cache is missing, the
+model is absent from the cache, or its entry is malformed, regardless of age.
+The provider for each model is declared in `config.MODEL_PROVIDER` (OpenAI
+serves bare ids, Groq serves the `openai/gpt-oss-*` ids) because model ids are
+not unique across providers in the catalog. `_fetch_catalog` retries twice (2s
+and 5s delays) with a 20s per-request timeout and prints a one-line warning on
+final failure; it never raises. On refresh failure `get_price` falls back to
+the stale cache if it has the model, otherwise returns `None`. `estimate_cost`
+returns `float | None`; callers (`process.py`, `retrieve/display.py`) print `?`
+when the cost is `None` rather than showing a misleading number. There is no
+hardcoded fallback: the catalog is the single source of truth. A model not in
+`MODEL_PROVIDER` returns `None` without a network call. Changing a model in
+`config.py` is handled automatically on the next lookup (the new id is just
+looked up in the cache, with a refresh if it is missing); only adding a new
+provider would need a `MODEL_PROVIDER` entry. `warm()` forces an eager refresh
+at startup of `process.py` and `retrieve` (before any work is done) so the
+cache is predictable and not coupled to whether the run actually reaches
+`estimate_cost` - without it, a no-op `process.py` (nothing to process) would
+skip `print_summary` and never refresh the cache.
+
 `run.py` (at the repo root) is a convenience wrapper around the `src/` scripts.
 It preflights `~/.ch/` and `~/.ch/tmp/` (matching `config.py`'s guard) before
 showing the menu, exiting non-zero with the Ch install URL if either is missing.
@@ -243,10 +270,11 @@ selection are not disturbed).
 ## Data and storage
 
 - All generated data lives in `~/.ch/index/` (the database, the `.npz` embeddings
-  cache, SQLite journal/WAL sidecars, `~/.ch/index/tmp/` scratch files for
-  `retrieve`'s `/view`, and `~/.ch/index/tmp/ls_preview_*.txt` files for
-  `/ls`'s precomputed fzf previews). It is created automatically by `config.py`
-  only after `~/.ch/` and `~/.ch/tmp/` already exist.
+  cache, the `pricing_cache.json` catalog snapshot, SQLite journal/WAL
+  sidecars, `~/.ch/index/tmp/` scratch files for `retrieve`'s `/view`, and
+  `~/.ch/index/tmp/ls_preview_*.txt` files for `/ls`'s precomputed fzf
+  previews). It is created automatically by `config.py` only after `~/.ch/`
+  and `~/.ch/tmp/` already exist.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
   `~/.ch/index/chats.db` means a full rebuild and re-processing.
@@ -309,7 +337,9 @@ provide deterministic test data. The suite covers pure functions (truncation,
 RRF fusion, epoch parsing, token estimation, noise filtering), defensive
 validation (hallucinated ID dropping in rerank, graceful fallbacks in
 expand_query, dangling word removal in truncate), DB operations (migrations,
-insert/update/backfill, FTS5, embeddings cache), and command handlers
+insert/update/backfill, FTS5, embeddings cache), pricing (cache load/save,
+refresh triggers, stale-cache fallback, None on unknown, retry loop with
+mocked urlopen), and command handlers
 (`/len` range validation, `/time` token parsing, `/purge` confirmation gate,
 `/dump` merge ordering and skip logic). For changes that could mutate or
 corrupt data, also test on a copy of the database, not the real one.
@@ -330,8 +360,11 @@ unprompted.
   note explaining _why_, not line-by-line narration. `config.py` in particular
   is intentionally terse.
 - No em dashes in the README or AGENTS.md.
-- Pricing is keyed by model in `config.PRICING` as `(input, output)` per 1M
-  tokens, with a `estimate_cost` helper. Keep price and model together.
+- Pricing is fetched from the [models.dev](https://models.dev/) catalog by
+  `pricing.py` and cached locally at `~/.ch/index/pricing_cache.json`. The
+  provider for each model is declared in `config.MODEL_PROVIDER`. `estimate_cost`
+  returns `float | None`; callers print `?` when it is `None`. Keep the catalog
+  as the single source of truth: no hardcoded fallback.
 - Paths are centralized in `config.py` so scripts work from any directory. Do not
   hardcode absolute paths or reintroduce per-script path constants.
 - Match the existing style of the file you are editing (naming, spacing, idiom).

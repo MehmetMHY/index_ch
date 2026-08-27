@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 from config import (
     PREVIEW_CHARS,
-    estimate_cost,
     EMBEDDING_MODEL,
     QUERY_EXPANSION_MODEL,
     RERANK_MODEL,
 )
+from pricing import estimate_cost
 
 from .state import Session
 
@@ -194,12 +194,14 @@ def print_results(results, meta, elapsed, usage):
     if not results:
         print("No matches.\n")
 
-    cost = (
-        estimate_cost(EMBEDDING_MODEL, usage["embed_in"])
-        + estimate_cost(QUERY_EXPANSION_MODEL, usage["expand_in"], usage["expand_out"])
-        + estimate_cost(RERANK_MODEL, usage["rerank_in"], usage["rerank_out"])
-    )
-    print(f"[{len(results)} results in {elapsed:.2f}s | ~${cost:.6f}]")
+    costs = [
+        estimate_cost(EMBEDDING_MODEL, usage["embed_in"]),
+        estimate_cost(QUERY_EXPANSION_MODEL, usage["expand_in"], usage["expand_out"]),
+        estimate_cost(RERANK_MODEL, usage["rerank_in"], usage["rerank_out"]),
+    ]
+    cost = sum(costs) if all(c is not None for c in costs) else None
+    cost_str = "?" if cost is None else f"{cost:.6f}"
+    print(f"[{len(results)} results in {elapsed:.2f}s | ~${cost_str}]")
 
 
 HELP_TEXT = """\033[4mStatus\033[0m

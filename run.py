@@ -108,11 +108,15 @@ def run_scripts(scripts):
             print()
 
 
-if __name__ == "__main__":
-    require_ch_dirs()
+def main():
+    """fzf-driven entry loop. Picks an action and runs it; loops back to the
+    menu only after `Update Cache` when the user opts to return. Exits on
+    `Exit Session`, a cancelled picker, or after any one-shot action."""
     while True:
         action = pick_action()
-        if action == "retrieve":
+        if action == "exit":
+            break
+        elif action == "retrieve":
             run_scripts([RETRIEVE_MODULE])
             break
         elif action == "ls":
@@ -136,4 +140,9 @@ if __name__ == "__main__":
         elif action == "update_retrieve":
             run_scripts([BUILD_SCRIPT, PROCESS_SCRIPT, RETRIEVE_MODULE])
             break
+
+
+if __name__ == "__main__":
+    require_ch_dirs()
+    main()
     sys.exit(0)

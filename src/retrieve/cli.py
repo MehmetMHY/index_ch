@@ -4,6 +4,7 @@ import threading
 
 from build import get_connection, backfill_message_epochs, backfill_archived
 from config import TOP_K, NUM_EXPANSIONS
+from pricing import warm
 
 from .spinner import Spinner, stop_startup_spinner
 from .state import Session
@@ -83,6 +84,10 @@ def main(argv=None):
         print()
         conn.close()
         return 0
+
+    # warm the pricing cache eagerly so the first query's cost line does not
+    # block on a catalog fetch (and a no-query session still refreshes it)
+    warm()
 
     session = Session(
         conn=conn,
