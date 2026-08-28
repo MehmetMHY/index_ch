@@ -13,6 +13,7 @@ from ..spinner import Spinner
 from ..display import chat_epoch, format_list_timestamp, chat_preview
 from ..actions import run_chat, copy_chat
 from ..state import Session
+from .. import color
 
 
 def list_chats_by_recency(conn, show_archived, time_filter):
@@ -69,7 +70,7 @@ def pick_ls_action():
     """fzf-pick what to do with a chat chosen via /ls. Returns one of 'run',
     'copy', or 'cancel' (also 'cancel' if fzf is missing)."""
     if shutil.which("fzf") is None:
-        print("fzf not found on PATH - cannot pick an action.")
+        print(color.red("fzf not found on PATH - cannot pick an action."))
         return "cancel"
     label_to_action = {label: action for label, action in LS_ACTIONS}
     proc = subprocess.run(
@@ -124,10 +125,10 @@ def pick_latest_with_fzf(rows):
     field. Returns (cid, info), or (None, None) if fzf is missing or the user
     cancelled."""
     if not rows:
-        print("No chats to list.")
+        print(color.yellow("No chats to list."))
         return None, None
     if shutil.which("fzf") is None:
-        print("fzf not found on PATH - install it to use /ls.")
+        print(color.red("fzf not found on PATH - install it to use /ls."))
         return None, None
 
     import sys
@@ -153,11 +154,6 @@ def pick_latest_with_fzf(rows):
         batch_cids, key=lambda c: info_map[c].get("raw_size", 0), reverse=True
     )
     pool_args = [(cid, TMP_DIR, DB_PATH) for cid in batch_by_size]
-    with Spinner(f"precomputing {len(batch_cids)} previews"):
-        with Pool(processes=min(len(batch_cids), os.cpu_count() or 4)) as pool:
-            pool.map(compute_and_save_preview, pool_args, chunksize=1)
-
-    # background fill the remaining previews while fzf is open
     stop_event = threading.Event()
     fill_cids = all_cids[PREVIEW_BATCH:]
     fill_thread = threading.Thread(
@@ -165,7 +161,6 @@ def pick_latest_with_fzf(rows):
         args=(fill_cids, TMP_DIR, DB_PATH, stop_event),
         daemon=True,
     )
-    fill_thread.start()
 
     # fzf preview: try the cached file first (instant), fall back to live preview.py
     preview_script = os.path.join(
@@ -176,7 +171,12 @@ def pick_latest_with_fzf(rows):
         f" || {shlex.quote(sys.executable)} {shlex.quote(preview_script)} {{1}}"
     )
 
+    proc = None
     try:
+        with Spinner(f"precomputing {len(batch_cids)} previews"):
+            with Pool(processes=min(len(batch_cids), os.cpu_count() or 4)) as pool:
+                pool.map(compute_and_save_preview, pool_args, chunksize=1)
+        fill_thread.start()
         proc = subprocess.run(
             [
                 "fzf",
@@ -199,10 +199,11 @@ def pick_latest_with_fzf(rows):
         )
     finally:
         stop_event.set()
-        fill_thread.join(timeout=2.0)
+        if fill_thread.is_alive():
+            fill_thread.join(timeout=2.0)
         _cleanup_previews(TMP_DIR)
 
-    if proc.returncode != 0 or not proc.stdout.strip():
+    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
         return None, None
     cid = int(proc.stdout.strip().split("\t", 1)[0])
     return cid, info_map[cid]
@@ -238,16 +239,18 @@ def handle_purge(conn):
     row set and embeddings cache signature have changed."""
     count = conn.execute("SELECT count(*) FROM chats WHERE archived = 1").fetchone()[0]
     if count == 0:
-        print("No archived chats to remove.")
+        print(color.yellow("No archived chats to remove."))
         return 0
     if shutil.which("fzf") is None:
-        print("fzf not found on PATH - install it to confirm /purge.")
+        print(color.red("fzf not found on PATH - install it to confirm /purge."))
         return 0
 
     yes_label = PURGE_YES_TMPL.format(count=count)
     choices = [PURGE_NO, yes_label]
     print(
-        f"This permanently deletes {count} archived chat(s) and their cached summaries/embeddings."
+        color.red(
+            f"This permanently deletes {count} archived chat(s) and their cached summaries/embeddings."
+        )
     )
     proc = subprocess.run(
         ["fzf", "--prompt=delete all archived? > ", "--cycle"],
@@ -256,10 +259,10 @@ def handle_purge(conn):
         text=True,
     )
     if proc.returncode != 0 or proc.stdout.strip() != yes_label:
-        print("Purge cancelled.")
+        print(color.yellow("Purge cancelled."))
         return 0
 
     cur = conn.execute("DELETE FROM chats WHERE archived = 1")
     conn.commit()
-    print(f"Deleted {cur.rowcount} archived chat(s).")
+    print(color.green(f"Deleted {cur.rowcount} archived chat(s)."))
     return cur.rowcount

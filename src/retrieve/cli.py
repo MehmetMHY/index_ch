@@ -11,6 +11,7 @@ from .state import Session
 from .cache import ensure_fts, load_vectors
 from .search import search, warm_connections
 from .display import print_results, format_help, time_filter_label
+from . import color
 from .cmds.ls import handle_ls, handle_purge
 from .cmds.dump import handle_dump
 from .cmds.simple import (
@@ -52,11 +53,11 @@ def main(argv=None):
     # embeddings, FTS, reranking, query expansion, or API warmup.
     if startup_cmd == "/ls":
         conn = get_connection()
-        backfill_message_epochs(conn)
-        backfill_archived(conn)
-        stop_startup_spinner()
-        _drain_stdin()
         try:
+            backfill_message_epochs(conn)
+            backfill_archived(conn)
+            stop_startup_spinner()
+            _drain_stdin()
             handle_ls(conn, False, None)
         except KeyboardInterrupt:
             print()
@@ -69,25 +70,18 @@ def main(argv=None):
     threading.Thread(target=warm_connections, daemon=True).start()
 
     conn = get_connection()
-    backfill_message_epochs(conn)  # one-time; no-op once the column exists
-    backfill_archived(conn)  # one-time; no-op once the column exists
-    stop_startup_spinner()
-    # drain anything typed during the spinner / slow imports before the DB
-    # setup prints anything, so junk does not glue onto the "Updating search
-    # index..." line; drained again before the first prompt for junk typed
-    # during the rebuild itself
-    _drain_stdin()
     try:
+        backfill_message_epochs(conn)
+        backfill_archived(conn)
+        stop_startup_spinner()
+        _drain_stdin()
         ensure_fts(conn)
         ids, mat, meta = load_vectors(conn)
+        warm()
     except KeyboardInterrupt:
         print()
         conn.close()
         return 0
-
-    # warm the pricing cache eagerly so the first query's cost line does not
-    # block on a catalog fetch (and a no-query session still refreshes it)
-    warm()
 
     session = Session(
         conn=conn,
@@ -102,8 +96,10 @@ def main(argv=None):
     )
 
     n = len(ids)
-    print(f"Loaded {n:,} indexed chat{'s' if n != 1 else ''}")
-    print("Type a query or /help")
+    print(
+        f"{color.cyan('Loaded')} {color.green(f'{n:,}')} {color.cyan('indexed chat' + ('s' if n != 1 else ''))}"
+    )
+    print(color.blue("Type a query or /help"))
 
     _drain_stdin()
     while True:
@@ -113,73 +109,90 @@ def main(argv=None):
                 startup_cmd = None
             else:
                 prompt = (
-                    f"[{time_filter_label(session.time_filter)}]> "
+                    f"{color.cyan(f'[{time_filter_label(session.time_filter)}]')}{color.blue('> ')}"
                     if session.time_filter
-                    else "> "
+                    else color.blue("> ")
                 )
                 query = input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
+            # Ctrl+D: exit cleanly
             print()
             break
+        except KeyboardInterrupt:
+            # Ctrl+C: clear the current line and show a fresh prompt
+            print()
+            continue
         if not query:
             continue
         if query.lower() in ("quit", "exit", ":q"):
             break
-        if query.lower() == ":fast":
-            session.do_rerank = not session.do_rerank
-            print(f"Rerank is now {'ON' if session.do_rerank else 'OFF'}.")
-            continue
-        if query.lower() == ":expand":
-            session.do_expand = not session.do_expand
-            print(f"Query expansion is now {'ON' if session.do_expand else 'OFF'}.")
-            continue
-        if query.lower() == ":archived":
-            session.show_archived = not session.show_archived
-            print(
-                f"Archived chats are now "
-                f"{'SHOWN' if session.show_archived else 'HIDDEN'}."
-            )
-            continue
 
-        parts = query.split()
-        if parts[0].lower() in ("/help", "/h"):
-            print(format_help(session))
-            continue
-        if parts[0].lower() in ("/view", "/v"):
-            handle_view(session, parts[1:])
-            continue
-        if parts[0].lower() in ("/copy", "/c"):
-            handle_copy(session, parts[1:])
-            continue
-        if parts[0].lower() in ("/run", "/r"):
-            handle_run(session, parts[1:])
-            continue
-        if parts[0].lower() in ("/dump", "/d"):
-            handle_dump(session, parts[1:])
-            continue
-        if parts[0].lower() == "/ls":
-            handle_ls(session.conn, session.show_archived, session.time_filter)
-            continue
-        if parts[0].lower() in ("/time", "/t"):
-            handle_time(session, parts[1:])
-            continue
-        if parts[0].lower() in ("/len", "/l"):
-            handle_len(session, parts[1:])
-            continue
-        if parts[0].lower() == "/purge":
-            if handle_purge(session.conn):
-                # row set and embeddings cache signature changed: reload
-                # in-memory state and rebuild the FTS index in place
-                ensure_fts(session.conn)
-                session.ids, session.mat, session.meta = load_vectors(session.conn)
-                session.last_results = []
-            continue
+        # Ctrl+C during search, rerank, or any command handler should
+        # re-prompt, not crash. The input() call above has its own handler;
+        # this wraps everything else in the loop body.
+        try:
+            if query.lower() == ":fast":
+                session.do_rerank = not session.do_rerank
+                state = color.green("ON") if session.do_rerank else color.red("OFF")
+                print(f"Rerank is now {state}.")
+                continue
+            if query.lower() == ":expand":
+                session.do_expand = not session.do_expand
+                state = color.green("ON") if session.do_expand else color.red("OFF")
+                print(f"Query expansion is now {state}.")
+                continue
+            if query.lower() == ":archived":
+                session.show_archived = not session.show_archived
+                state = (
+                    color.green("SHOWN")
+                    if session.show_archived
+                    else color.red("HIDDEN")
+                )
+                print(f"Archived chats are now {state}.")
+                continue
 
-        start = time.time()
-        with Spinner("reranking" if session.do_rerank else "searching"):
-            results, usage = search(session, query)
-        print_results(results, session.meta, time.time() - start, usage)
-        session.last_results = results
+            parts = query.split()
+            if parts[0].lower() in ("/help", "/h"):
+                print(format_help(session))
+                continue
+            if parts[0].lower() in ("/view", "/v"):
+                handle_view(session, parts[1:])
+                continue
+            if parts[0].lower() in ("/copy", "/c"):
+                handle_copy(session, parts[1:])
+                continue
+            if parts[0].lower() in ("/run", "/r"):
+                handle_run(session, parts[1:])
+                continue
+            if parts[0].lower() in ("/dump", "/d"):
+                handle_dump(session, parts[1:])
+                continue
+            if parts[0].lower() == "/ls":
+                handle_ls(session.conn, session.show_archived, session.time_filter)
+                continue
+            if parts[0].lower() in ("/time", "/t"):
+                handle_time(session, parts[1:])
+                continue
+            if parts[0].lower() in ("/len", "/l"):
+                handle_len(session, parts[1:])
+                continue
+            if parts[0].lower() == "/purge":
+                if handle_purge(session.conn):
+                    # row set and embeddings cache signature changed: reload
+                    # in-memory state and rebuild the FTS index in place
+                    ensure_fts(session.conn)
+                    session.ids, session.mat, session.meta = load_vectors(session.conn)
+                    session.last_results = []
+                continue
+
+            start = time.time()
+            with Spinner("reranking" if session.do_rerank else "searching"):
+                results, usage = search(session, query)
+            print_results(results, session.meta, time.time() - start, usage)
+            session.last_results = results
+        except KeyboardInterrupt:
+            print()
+            continue
 
     conn.close()
     return 0

@@ -193,6 +193,7 @@ def sample_meta():
             "short_summary": "Saying hello and goodbye.",
             "last_message_epoch": 1700000100,
             "archived": False,
+            "message_count": 4,
         },
         2: {
             "file_path": "/tmp/ch_session_1700000500.json",
@@ -200,6 +201,7 @@ def sample_meta():
             "short_summary": "Asking a question.",
             "last_message_epoch": 1700000500,
             "archived": False,
+            "message_count": 2,
         },
         3: {
             "file_path": "/tmp/ch_session_1700001000.json",
@@ -207,6 +209,7 @@ def sample_meta():
             "short_summary": "Old archived session.",
             "last_message_epoch": 1700001000,
             "archived": True,
+            "message_count": 2,
         },
     }
 

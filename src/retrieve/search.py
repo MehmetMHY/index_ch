@@ -23,6 +23,7 @@ from config import (
 from .models import RerankResult, ExpandedQueries, RERANK_SYSTEM, QUERY_EXPANSION_SYSTEM
 from .display import chat_epoch
 from .state import Session
+from . import color
 from .cache import fts_search
 
 # OpenAI for embeddings (the stored vectors are text-embedding-3-small, so the
@@ -111,7 +112,9 @@ def expand_query(query, n=NUM_EXPANSIONS):
         )
         raw = resp.choices[0].message.parsed.queries
     except Exception as exc:
-        print(f"(query expansion failed, using original query only: {exc})")
+        print(
+            color.yellow(f"(query expansion failed, using original query only: {exc})")
+        )
         return [], 0, 0
 
     seen = {query.strip().lower()}
@@ -152,7 +155,7 @@ def rerank(query, candidate_ids, meta):
         )
         parsed = resp.choices[0].message.parsed
     except Exception as exc:
-        print(f"(rerank failed, falling back to hybrid order: {exc})")
+        print(color.yellow(f"(rerank failed, falling back to hybrid order: {exc})"))
         return [(cid, None) for cid in candidate_ids], 0, 0
 
     # validate: keep only real, in-set ids, each once, in the model's order

@@ -12,6 +12,7 @@ from config import TMP_DIR
 from build import format_messages
 
 from .display import chat_preview
+from . import color
 
 
 def fetch_raw(conn, cid):
@@ -65,16 +66,20 @@ def copy_to_clipboard(text):
         elif shutil.which("xsel"):
             cmd = ["xsel", "--clipboard", "--input"]
         else:
-            print("No clipboard tool found - install xclip, xsel, or wl-clipboard.")
+            print(
+                color.red(
+                    "No clipboard tool found - install xclip, xsel, or wl-clipboard."
+                )
+            )
             return False
     else:
-        print(f"Clipboard copy isn't supported on {system}.")
+        print(color.red(f"Clipboard copy isn't supported on {system}."))
         return False
 
     try:
         subprocess.run(cmd, input=text, text=True, check=True)
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        print(f"Clipboard copy failed: {exc}")
+        print(color.red(f"Clipboard copy failed: {exc}"))
         return False
     return True
 
@@ -83,19 +88,23 @@ def copy_chat(cid, meta):
     name = os.path.basename(meta[cid]["file_path"])
     if copy_to_clipboard(name):
         note = " (archived - source file gone)" if meta[cid].get("archived") else ""
-        print(f"Copied {name} to clipboard{note}.")
+        print(color.green(f"Copied {name} to clipboard{note}."))
 
 
 def run_chat(cid, meta):
     """Hand the terminal over to `ch -f <name>` to resume the session in Ch."""
     if shutil.which("ch") is None:
-        print("ch not found on PATH - https://github.com/MehmetMHY/ch")
+        print(color.red("ch not found on PATH - https://github.com/MehmetMHY/ch"))
         return
     name = os.path.basename(meta[cid]["file_path"])
     if meta[cid].get("archived"):
-        print(f"Note: {name} is archived (source file gone); ch -f may fail.")
-    print(f"Opening {name} in ch...")
+        print(
+            color.yellow(
+                f"Note: {name} is archived (source file gone); ch -f may fail."
+            )
+        )
+    print(color.cyan(f"Opening {name} in ch..."))
     result = subprocess.run(["ch", "-f", name])
     if result.returncode != 0:
-        print(f"ch exited with status {result.returncode}.")
-    print("Type a query or /help")
+        print(color.red(f"ch exited with status {result.returncode}."))
+    print(color.blue("Type a query or /help"))

@@ -12,6 +12,8 @@ from config import (
 from pricing import estimate_cost
 
 from .state import Session
+from . import color
+from .color import gray, red, green, yellow, cyan, blue, magenta
 
 
 def preview(summary, limit=PREVIEW_CHARS):
@@ -186,13 +188,22 @@ def print_results(results, meta, elapsed, usage):
         info = meta[cid]
         name = os.path.basename(info["file_path"])
         ts = format_timestamp(chat_epoch(info))
-        ts_tag = f" \u00b7 {ts}" if ts else ""
-        arch_tag = " \u00b7 archived" if info.get("archived") else ""
-        tag = f" \u00b7 relevance {grade}/3" if grade is not None else ""
-        print(f"{i}. {name}{ts_tag}{arch_tag}{tag}")
-        print(f"   {chat_preview(info)}\n")
+        ts_tag = f" * {gray(ts)}" if ts else ""
+        arch_tag = f" * {red('archived')}" if info.get("archived") else ""
+        if grade is not None:
+            gc = magenta if grade >= 3 else (yellow if grade >= 2 else red)
+            grade_tag = f" {gc(f'[{grade}/3]')}"
+        else:
+            grade_tag = ""
+        n_msgs = info.get("message_count", 0)
+        msg_label = f"{n_msgs} msg{'s' if n_msgs != 1 else ''}"
+        msg_tag = f" {gray(f'[{msg_label}]')}"
+        print(
+            f"{color.cyan(f'{i})')} {color.cyan(name)}{ts_tag}{arch_tag}{grade_tag}{msg_tag}"
+        )
+        print(f"{color.green(chat_preview(info))}\n")
     if not results:
-        print("No matches.\n")
+        print(f"{yellow('No matches.')}\n")
 
     costs = [
         estimate_cost(EMBEDDING_MODEL, usage["embed_in"]),
@@ -200,17 +211,26 @@ def print_results(results, meta, elapsed, usage):
         estimate_cost(RERANK_MODEL, usage["rerank_in"], usage["rerank_out"]),
     ]
     cost = sum(costs) if all(c is not None for c in costs) else None
-    cost_str = "?" if cost is None else f"{cost:.6f}"
-    print(f"[{len(results)} results in {elapsed:.2f}s | ~${cost_str}]")
+    cost_str = "?" if cost is None else f"${cost:.6f}"
+
+    if elapsed < 1:
+        time_str = f"{elapsed * 1000:.0f} milliseconds"
+    elif elapsed < 60:
+        time_str = f"{elapsed:.2f} seconds"
+    elif elapsed < 3600:
+        time_str = f"{elapsed / 60:.2f} minutes"
+    else:
+        time_str = f"{elapsed / 3600:.2f} hours"
+    print(f"{gray(time_str)} {gray(f'({cost_str})')}")
 
 
-HELP_TEXT = """\033[4mStatus\033[0m
-rerank: {rerank}
-expansion: {expand}
-archived: {archived}
-time: {time_filter}
-results: {result_len}
-\033[4mOptions\033[0m
+HELP_TEXT = f"""{color.UNDERLINE}Status{color.RESET}
+rerank: {{rerank}}
+expansion: {{expand}}
+archived: {{archived}}
+time: {{time_filter}}
+results: {{result_len}}
+{color.UNDERLINE}Options{color.RESET}
 <query>        search your chats
 /view, /v      fuzzy-pick a result, open it in $EDITOR
 /view <n>      open result n directly
@@ -235,9 +255,9 @@ quit, exit, :q exit"""
 
 def format_help(session: Session) -> str:
     return HELP_TEXT.format(
-        rerank="on" if session.do_rerank else "off",
-        expand="on" if session.do_expand else "off",
-        archived="shown" if session.show_archived else "hidden",
+        rerank=color.green("on") if session.do_rerank else color.red("off"),
+        expand=color.green("on") if session.do_expand else color.red("off"),
+        archived=color.green("shown") if session.show_archived else color.red("hidden"),
         time_filter=time_filter_desc(session.time_filter),
         result_len=session.result_len,
     )

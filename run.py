@@ -1,6 +1,5 @@
 import subprocess
 import shutil
-import time
 import sys
 import os
 
@@ -88,25 +87,38 @@ def confirm_return_to_menu():
     return proc.returncode == 0 and proc.stdout.strip() == RETURN_YES
 
 
+def _wait_retrieve(proc):
+    """Wait for a retrieve child process, tolerating Ctrl+C. retrieve catches
+    SIGINT at its prompt and re-prompts (does not exit), so the parent must keep
+    waiting when KeyboardInterrupt lands instead of killing the child."""
+    while True:
+        try:
+            return proc.wait()
+        except KeyboardInterrupt:
+            pass
+
+
 def run_scripts(scripts):
     for i, script in enumerate(scripts):
         label = SCRIPT_LABELS.get(script)
         if label:
-            print(label, flush=True)
+            print(f"\033[95m{label}\033[0m", flush=True)
         if script is RETRIEVE_MODULE:
             cmd = f"{PY_CALL} -m {script}"
             env = os.environ.copy()
             env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
-            status = subprocess.run(cmd, shell=True, env=env).returncode
+            proc = subprocess.Popen(cmd, shell=True, env=env)
+            status = _wait_retrieve(proc)
         else:
             cmd = f"{PY_CALL} {script}"
-            status = os.system(cmd)
+            try:
+                status = os.system(cmd)
+            except KeyboardInterrupt:
+                print()
+                sys.exit(130)
         if status != 0:
             print(f"error: '{cmd}' command failed with status {status}")
             sys.exit(1)
-        if i != len(scripts) - 1:
-            time.sleep(0.1)
-            print()
 
 
 def main():
@@ -122,12 +134,11 @@ def main():
             break
         elif action == "ls":
             # launch retrieve with a startup command so it runs /ls on launch
-            print("Opening chat browser...", flush=True)
+            print("\033[95mOpening chat browser...\033[0m", flush=True)
             env = os.environ.copy()
             env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
-            status = subprocess.run(
-                [PY_CALL, "-m", RETRIEVE_MODULE, "ls"], env=env
-            ).returncode
+            proc = subprocess.Popen([PY_CALL, "-m", RETRIEVE_MODULE, "ls"], env=env)
+            status = _wait_retrieve(proc)
             if status != 0:
                 print(f"error: retrieve ls failed with status {status}")
                 sys.exit(1)
@@ -145,5 +156,8 @@ def main():
 
 if __name__ == "__main__":
     require_ch_dirs()
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
     sys.exit(0)

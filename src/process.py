@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -272,82 +273,86 @@ def print_summary(done, errors, runtime, tok):
 if __name__ == "__main__":
     start_time = time.time()
 
-    # warm the pricing cache eagerly so a no-op run (nothing to process) still
-    # refreshes it; otherwise estimate_cost is only reached via print_summary,
-    # which is skipped when total == 0.
-    warm()
-
-    conn = get_connection()
-    migrate(conn)
-
-    rows = pending_rows(conn, include_errors=RETRY_ERRORS)
-    total = len(rows)
-    mode = " (retrying previously failed)" if RETRY_ERRORS else ""
-    print(f"{total} chats to process with {MAX_WORKERS} workers{mode}")
-
-    if total == 0:
-        conn.close()
-        print("Nothing to do.")
-        raise SystemExit
-
-    done = 0
-    errors = 0
-    tok = {
-        "summary_in": 0,
-        "summary_out": 0,
-        "short_in": 0,
-        "short_out": 0,
-        "embed_in": 0,
-    }
-    interrupted = False
-
-    # not using a `with` block on purpose: its __exit__ blocks on shutdown(wait=True)
-    # which drains every queued future, making Ctrl-C hang. we shut down manually.
-    pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-    futures = {pool.submit(process_row, row): row[0] for row in rows}
     try:
-        for future in as_completed(futures):
-            row_id = futures[future]
-            try:
-                result = future.result()
-                save(conn, result)
-                done += 1
-                for key in tok:
-                    tok[key] += result[key]
-            except Exception as exc:
-                errors += 1
-                mark_error(conn, row_id, exc)
-                print(f"error on chat id {row_id}: {exc}")
-                continue
+        # warm the pricing cache eagerly so a no-op run (nothing to process) still
+        # refreshes it; otherwise estimate_cost is only reached via print_summary,
+        # which is skipped when total == 0.
+        warm()
 
-            if done % COMMIT_EVERY == 0:
-                conn.commit()
+        conn = get_connection()
+        migrate(conn)
 
-            if done % PRINT_EVERY == 0 or done == total:
-                elapsed = time.time() - start_time
-                rate = done / elapsed if elapsed > 0 else 0
-                remaining = total - done
-                eta = remaining / rate if rate > 0 else 0
-                pct = done / total * 100
-                print(
-                    f"{done}/{total} ({pct:5.1f}%) | "
-                    f"{rate:4.1f} chats/s | "
-                    f"elapsed {fmt_duration(elapsed)} | "
-                    f"ETA {fmt_duration(eta)}"
-                )
+        rows = pending_rows(conn, include_errors=RETRY_ERRORS)
+        total = len(rows)
+        mode = " (retrying previously failed)" if RETRY_ERRORS else ""
+        print(f"{total} chats to process with {MAX_WORKERS} workers{mode}")
+
+        if total == 0:
+            conn.close()
+            print("Nothing to do.")
+            raise SystemExit
+
+        done = 0
+        errors = 0
+        tok = {
+            "summary_in": 0,
+            "summary_out": 0,
+            "short_in": 0,
+            "short_out": 0,
+            "embed_in": 0,
+        }
+        interrupted = False
+
+        # not using a `with` block on purpose: its __exit__ blocks on shutdown(wait=True)
+        # which drains every queued future, making Ctrl-C hang. we shut down manually.
+        pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+        futures = {pool.submit(process_row, row): row[0] for row in rows}
+        try:
+            for future in as_completed(futures):
+                row_id = futures[future]
+                try:
+                    result = future.result()
+                    save(conn, result)
+                    done += 1
+                    for key in tok:
+                        tok[key] += result[key]
+                except Exception as exc:
+                    errors += 1
+                    mark_error(conn, row_id, exc)
+                    print(f"error on chat id {row_id}: {exc}")
+                    continue
+
+                if done % COMMIT_EVERY == 0:
+                    conn.commit()
+
+                if done % PRINT_EVERY == 0 or done == total:
+                    elapsed = time.time() - start_time
+                    rate = done / elapsed if elapsed > 0 else 0
+                    remaining = total - done
+                    eta = remaining / rate if rate > 0 else 0
+                    pct = done / total * 100
+                    print(
+                        f"{done}/{total} ({pct:5.1f}%) | "
+                        f"{rate:4.1f} chats/s | "
+                        f"elapsed {fmt_duration(elapsed)} | "
+                        f"ETA {fmt_duration(eta)}"
+                    )
+        except KeyboardInterrupt:
+            interrupted = True
+            print("Interrupted — cancelling pending work and saving progress...")
+        finally:
+            # cancel queued-but-not-started work and don't wait on in-flight calls,
+            # so we exit fast. already-saved rows are flushed by the commit below;
+            # any in-flight chats are simply re-done on the next run (resumable).
+            pool.shutdown(wait=False, cancel_futures=True)
+            conn.commit()
+            conn.close()
+
+        runtime = time.time() - start_time
+        print_summary(done, errors, runtime, tok)
+
+        if interrupted:
+            print("Stopped early. Re-run to finish the remaining chats.")
     except KeyboardInterrupt:
-        interrupted = True
-        print("Interrupted — cancelling pending work and saving progress...")
-    finally:
-        # cancel queued-but-not-started work and don't wait on in-flight calls,
-        # so we exit fast. already-saved rows are flushed by the commit below;
-        # any in-flight chats are simply re-done on the next run (resumable).
-        pool.shutdown(wait=False, cancel_futures=True)
-        conn.commit()
-        conn.close()
-
-    runtime = time.time() - start_time
-    print_summary(done, errors, runtime, tok)
-
-    if interrupted:
-        print("Stopped early. Re-run to finish the remaining chats.")
+        print("\nInterrupted.")
+        sys.exit(130)

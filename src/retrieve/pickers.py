@@ -4,13 +4,16 @@ import shutil
 import subprocess
 
 from .display import chat_epoch, format_list_timestamp, format_timestamp, chat_preview
+from . import color
 
 
 def pick_with_fzf(last_results, meta, hint):
     """Fuzzy-pick one of the last results with fzf. Returns a chat id, or None
     if fzf is missing or the user cancelled (Esc / Ctrl-C / no match)."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH - install it, or use '{hint} <number>'.")
+        print(
+            color.red(f"fzf not found on PATH - install it, or use '{hint} <number>'.")
+        )
         return None
 
     lines = []
@@ -38,7 +41,11 @@ def pick_many_with_fzf(last_results, meta, hint):
     """Fuzzy-pick one or more of the last results with fzf (multi-select).
     Returns a list of chat ids (empty if fzf is missing or the user cancelled)."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH - install it, or use '{hint} <number>...'.")
+        print(
+            color.red(
+                f"fzf not found on PATH - install it, or use '{hint} <number>...'."
+            )
+        )
         return []
 
     lines = []
@@ -69,17 +76,17 @@ def pick_many_with_fzf(last_results, meta, hint):
 def resolve_pick(args, last_results, meta, hint):
     """Shared arg parsing for /view and /copy: an explicit index, or fzf."""
     if not last_results:
-        print("No results yet - run a search first.")
+        print(color.yellow("No results yet - run a search first."))
         return None
 
     if args:
         try:
             idx = int(args[0])
         except ValueError:
-            print(f"Usage: {hint} [1-{len(last_results)}]")
+            print(color.yellow(f"Usage: {hint} [1-{len(last_results)}]"))
             return None
         if not (1 <= idx <= len(last_results)):
-            print(f"Choose a number between 1 and {len(last_results)}.")
+            print(color.yellow(f"Choose a number between 1 and {len(last_results)}."))
             return None
         return last_results[idx - 1][0]
 
@@ -91,7 +98,7 @@ def resolve_picks(args, last_results, meta, hint):
     Returns a de-duplicated list of chat ids (order preserved), or [] on any
     usage error or cancel."""
     if not last_results:
-        print("No results yet - run a search first.")
+        print(color.yellow("No results yet - run a search first."))
         return []
 
     if args:
@@ -100,10 +107,12 @@ def resolve_picks(args, last_results, meta, hint):
             try:
                 idx = int(a)
             except ValueError:
-                print(f"Usage: {hint} [1-{len(last_results)}]...")
+                print(color.yellow(f"Usage: {hint} [1-{len(last_results)}]..."))
                 return []
             if not (1 <= idx <= len(last_results)):
-                print(f"Choose numbers between 1 and {len(last_results)}.")
+                print(
+                    color.yellow(f"Choose numbers between 1 and {len(last_results)}.")
+                )
                 return []
             cids.append(last_results[idx - 1][0])
         seen, out = set(), []

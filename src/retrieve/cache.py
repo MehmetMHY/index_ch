@@ -6,6 +6,7 @@ import numpy as np
 
 from config import EMBEDDINGS_CACHE_PATH
 from build import get_connection  # noqa: F401 (re-exported for cli.py convenience)
+from . import color
 
 
 def ensure_fts(conn):
@@ -29,7 +30,7 @@ def ensure_fts(conn):
     signature = f"{count}:{latest}"
     stored = conn.execute("SELECT signature FROM fts_state WHERE id = 1").fetchone()
     if stored is None or stored[0] != signature:
-        print("Updating search index...", flush=True)
+        print(color.yellow("Updating search index..."), flush=True)
         conn.execute("INSERT INTO chats_fts(chats_fts) VALUES('rebuild')")
         conn.execute(
             "INSERT INTO fts_state(id, signature) VALUES(1, ?) "
@@ -79,7 +80,8 @@ def load_vectors(conn):
     is always read fresh from the db - that part is cheap, no float parsing.
     """
     rows = conn.execute(
-        "SELECT id, file_path, summary, short_summary, last_message_epoch, archived "
+        "SELECT id, file_path, summary, short_summary, last_message_epoch, "
+        "archived, json_array_length(json_extract(raw, '$.messages')) "
         "FROM chats WHERE embedding IS NOT NULL"
     ).fetchall()
     meta = {
@@ -89,6 +91,7 @@ def load_vectors(conn):
             "short_summary": r[3],
             "last_message_epoch": r[4],
             "archived": bool(r[5]),
+            "message_count": r[6] if r[6] is not None else 0,
         }
         for r in rows
     }

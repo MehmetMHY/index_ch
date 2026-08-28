@@ -6,9 +6,11 @@ from .spinner import start_startup_spinner, stop_startup_spinner
 
 start_startup_spinner()
 
-from .cli import main
-
 try:
+    from .cli import main
+
     sys.exit(main())
+except KeyboardInterrupt:
+    pass
 finally:
     stop_startup_spinner()

@@ -51,9 +51,106 @@ class TestSetupInterrupt:
         monkeypatch.setattr(cli, "stop_startup_spinner", lambda: None)
         monkeypatch.setattr(cli, "_drain_stdin", lambda: None)
         monkeypatch.setattr(cli, "warm_connections", lambda: None)
+        monkeypatch.setattr(cli, "warm", lambda: None)
         monkeypatch.setattr(
             cli, "ensure_fts", lambda c: (_ for _ in ()).throw(KeyboardInterrupt())
         )
         rc = cli.main([])
         assert rc == 0
         conn.close()
+
+
+class TestPromptInterrupt:
+    """Ctrl+C at the prompt re-prompts; Ctrl+D exits."""
+
+    def _setup_cli(self, monkeypatch):
+        import retrieve.cli as cli
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        monkeypatch.setattr(cli, "get_connection", lambda: conn)
+        monkeypatch.setattr(cli, "backfill_message_epochs", lambda c: None)
+        monkeypatch.setattr(cli, "backfill_archived", lambda c: None)
+        monkeypatch.setattr(cli, "stop_startup_spinner", lambda: None)
+        monkeypatch.setattr(cli, "_drain_stdin", lambda: None)
+        monkeypatch.setattr(cli, "warm_connections", lambda: None)
+        monkeypatch.setattr(cli, "warm", lambda: None)
+        monkeypatch.setattr(cli, "ensure_fts", lambda c: None)
+        import numpy as np
+
+        monkeypatch.setattr(
+            cli,
+            "load_vectors",
+            lambda c: (np.array([], dtype=int), np.array([]).reshape(0, 1), {}),
+        )
+        return cli
+
+    def test_ctrl_c_reprompts_not_exit(self, monkeypatch):
+        cli = self._setup_cli(monkeypatch)
+        # first input raises KeyboardInterrupt (re-prompt), second raises
+        # EOFError (exit) so the loop terminates and we can assert the return
+        inputs = iter([KeyboardInterrupt(), EOFError()])
+
+        def fake_input(prompt):
+            raise next(inputs)
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0  # exited via EOF on the second call, not via crash
+
+    def test_ctrl_d_exits_immediately(self, monkeypatch):
+        cli = self._setup_cli(monkeypatch)
+
+        def fake_input(prompt):
+            raise EOFError()
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0
+
+    def test_ctrl_c_during_search_reprompts(self, monkeypatch):
+        """Ctrl+C during search/rerank must re-prompt, not crash."""
+        cli = self._setup_cli(monkeypatch)
+        # first call: a real query that triggers search -> KeyboardInterrupt
+        # second call: EOFError to exit the loop
+        inputs = iter(["stock picks", EOFError()])
+
+        def fake_input(prompt):
+            val = next(inputs)
+            if isinstance(val, str):
+                return val
+            raise val
+
+        def fake_search(*a, **kw):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        monkeypatch.setattr(cli, "search", fake_search)
+        monkeypatch.setattr(
+            cli, "Spinner", lambda *a, **kw: __import__("contextlib").nullcontext()
+        )
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0  # exited via EOF on second input, not via crash
+
+    def test_ctrl_c_during_command_reprompts(self, monkeypatch):
+        """Ctrl+C during any command handler must re-prompt, not crash."""
+        cli = self._setup_cli(monkeypatch)
+        inputs = iter(["/ls", EOFError()])
+
+        def fake_input(prompt):
+            val = next(inputs)
+            if isinstance(val, str):
+                return val
+            raise val
+
+        def fake_ls(*a, **kw):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        monkeypatch.setattr(cli, "handle_ls", fake_ls)
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0

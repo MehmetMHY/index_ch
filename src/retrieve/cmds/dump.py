@@ -9,6 +9,7 @@ from config import TMP_DIR
 from ..display import chat_epoch
 from ..pickers import resolve_picks
 from ..state import Session
+from .. import color
 
 
 def build_dump(cids, meta):
@@ -47,7 +48,7 @@ def build_dump(cids, meta):
             skipped.append((name, exc))
 
     if not messages:
-        print("Nothing dumped - all selected files failed to read.")
+        print(color.red("Nothing dumped - all selected files failed to read."))
         report_skipped(skipped)
         return None
 
@@ -64,9 +65,9 @@ def build_dump(cids, meta):
 
 def report_skipped(skipped):
     if skipped:
-        print(f"Skipped {len(skipped)} unreadable file(s):")
+        print(color.yellow(f"Skipped {len(skipped)} unreadable file(s):"))
         for name, exc in skipped:
-            print(f"  {name}: {exc}")
+            print(color.yellow(f"  {name}: {exc}"))
 
 
 def unique_path(path):
@@ -94,7 +95,7 @@ def pick_dump_action():
     """fzf-pick what to do with the merged dump. Returns one of 'downloads',
     'load', 'load_keep', or 'cancel' (also 'cancel' if fzf is missing)."""
     if shutil.which("fzf") is None:
-        print("fzf not found on PATH - install it to use /dump.")
+        print(color.red("fzf not found on PATH - install it to use /dump."))
         return "cancel"
 
     label_to_action = {label: action for label, action in DUMP_ACTIONS}
@@ -116,7 +117,11 @@ def save_dump_to_downloads(merged, filename, skipped):
     with open(out_path, "w") as f:
         json.dump(merged, f, indent=4)
     n = len(merged["source_files"])
-    print(f"Saved {n} chat(s) ({len(merged['messages'])} messages) to {out_path}.")
+    print(
+        color.green(
+            f"Saved {n} chat(s) ({len(merged['messages'])} messages) to {out_path}."
+        )
+    )
     report_skipped(skipped)
 
 
@@ -125,7 +130,7 @@ def load_dump_in_ch(merged, filename, keep, skipped):
     ch exits - or, when keep is True, move it to ~/Downloads instead. The
     try/finally guarantees the temp file is never orphaned, even on Ctrl-C."""
     if shutil.which("ch") is None:
-        print("ch not found on PATH - https://github.com/MehmetMHY/ch")
+        print(color.red("ch not found on PATH - https://github.com/MehmetMHY/ch"))
         return
 
     tmp_path = os.path.join(TMP_DIR, filename)
@@ -133,7 +138,7 @@ def load_dump_in_ch(merged, filename, keep, skipped):
         json.dump(merged, f, indent=4)
 
     n = len(merged["source_files"])
-    print(f"Opening merged dump of {n} chat(s) in ch...")
+    print(color.cyan(f"Opening merged dump of {n} chat(s) in ch..."))
     result = None
     try:
         result = subprocess.run(["ch", "-f", tmp_path])
@@ -145,12 +150,12 @@ def load_dump_in_ch(merged, filename, keep, skipped):
             os.makedirs(out_dir, exist_ok=True)
             out_path = unique_path(os.path.join(out_dir, filename))
             shutil.move(tmp_path, out_path)
-            print(f"Saved merged dump to {out_path}.")
+            print(color.green(f"Saved merged dump to {out_path}."))
         else:
             os.remove(tmp_path)
     if result is not None and result.returncode != 0:
-        print(f"ch exited with status {result.returncode}.")
-    print("Type a query or /help")
+        print(color.red(f"ch exited with status {result.returncode}."))
+    print(color.blue("Type a query or /help"))
     report_skipped(skipped)
 
 

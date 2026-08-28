@@ -3,6 +3,7 @@ import time
 import json
 import os
 import re
+import sys
 import hashlib
 import sqlite3
 from datetime import datetime, timezone
@@ -270,92 +271,83 @@ def update_entries(conn, entries):
 if __name__ == "__main__":
     start_time = time.time()
 
-    json_paths = [f for f in file_paths(CHATS_SOURCE_DIR) if f.endswith(".json")]
+    try:
+        json_paths = [f for f in file_paths(CHATS_SOURCE_DIR) if f.endswith(".json")]
 
-    conn = get_connection()
-    backfill_message_epochs(conn)
-    backfill_content_hashes(conn)
-    backfill_archived(conn)
+        conn = get_connection()
+        backfill_message_epochs(conn)
+        backfill_content_hashes(conn)
+        backfill_archived(conn)
 
-    # hash every file on disk and diff against what the DB has stored: unknown
-    # paths are new, known paths whose hash moved are resumed/edited chats. skip
-    # any file that vanishes mid-scan; a later build picks it up
-    disk_hashes = {}
-    for p in json_paths:
-        try:
-            disk_hashes[p] = file_hash(p)
-        except OSError as exc:
-            print(f"skipping {os.path.basename(p)}: {exc}")
+        disk_hashes = {}
+        for p in json_paths:
+            try:
+                disk_hashes[p] = file_hash(p)
+            except OSError as exc:
+                print(f"skipping {os.path.basename(p)}: {exc}")
 
-    stored = stored_hashes(conn)
-    archived_flags = dict(conn.execute("SELECT file_path, archived FROM chats"))
-    new_paths = [p for p in disk_hashes if p not in stored]
-    changed_paths = [
-        p for p in disk_hashes if p in stored and stored[p] != disk_hashes[p]
-    ]
+        stored = stored_hashes(conn)
+        archived_flags = dict(conn.execute("SELECT file_path, archived FROM chats"))
+        new_paths = [p for p in disk_hashes if p not in stored]
+        changed_paths = [
+            p for p in disk_hashes if p in stored and stored[p] != disk_hashes[p]
+        ]
 
-    # a chat whose source file vanished from ~/.ch/tmp/ is flagged archived but
-    # never deleted (its summary/embedding/raw are cached and paid for). only
-    # flip rows that are not already archived, so a steady-state build does not
-    # bump updated_at and needlessly invalidate retrieve's caches. a file that
-    # reappears (archived=1 but back on disk) is un-archived; if its hash also
-    # changed it is re-ingested via changed_paths (which clears archived too).
-    now = datetime.now(timezone.utc).isoformat()
-    newly_missing = [
-        p for p in stored if p not in disk_hashes and archived_flags.get(p) != 1
-    ]
-    reappeared = [p for p in disk_hashes if archived_flags.get(p) == 1]
-    if newly_missing:
-        conn.executemany(
-            "UPDATE chats SET archived = 1, updated_at = ? WHERE file_path = ?",
-            [(now, p) for p in newly_missing],
-        )
-        conn.commit()
-    if reappeared:
-        conn.executemany(
-            "UPDATE chats SET archived = 0, updated_at = ? WHERE file_path = ?",
-            [(now, p) for p in reappeared],
-        )
-        conn.commit()
+        now = datetime.now(timezone.utc).isoformat()
+        newly_missing = [
+            p for p in stored if p not in disk_hashes and archived_flags.get(p) != 1
+        ]
+        reappeared = [p for p in disk_hashes if archived_flags.get(p) == 1]
+        if newly_missing:
+            conn.executemany(
+                "UPDATE chats SET archived = 1, updated_at = ? WHERE file_path = ?",
+                [(now, p) for p in newly_missing],
+            )
+            conn.commit()
+        if reappeared:
+            conn.executemany(
+                "UPDATE chats SET archived = 0, updated_at = ? WHERE file_path = ?",
+                [(now, p) for p in reappeared],
+            )
+            conn.commit()
 
-    # load only new/changed files; load_and_clean returns None for any it could
-    # not read or parse (e.g. caught mid-write), so those are skipped and left for
-    # a later build. the stored hash comes from load_and_clean's own read, so it
-    # always matches the content actually written.
-    to_load = new_paths + changed_paths
-    results = {}
-    if to_load:
-        with Pool() as pool:
-            loaded = pool.map(load_and_clean, to_load)
-        results = {p: r for p, r in zip(to_load, loaded) if r is not None}
-        insert_entries(
-            conn,
-            [
-                (p, results[p], results[p]["content_hash"])
-                for p in new_paths
-                if p in results
-            ],
-        )
-        update_entries(
-            conn,
-            [
-                (p, results[p], results[p]["content_hash"])
-                for p in changed_paths
-                if p in results
-            ],
-        )
+        to_load = new_paths + changed_paths
+        results = {}
+        if to_load:
+            with Pool() as pool:
+                loaded = pool.map(load_and_clean, to_load)
+            results = {p: r for p, r in zip(to_load, loaded) if r is not None}
+            insert_entries(
+                conn,
+                [
+                    (p, results[p], results[p]["content_hash"])
+                    for p in new_paths
+                    if p in results
+                ],
+            )
+            update_entries(
+                conn,
+                [
+                    (p, results[p], results[p]["content_hash"])
+                    for p in changed_paths
+                    if p in results
+                ],
+            )
 
-    conn.close()
+        conn.close()
 
-    runtime = time.time() - start_time
-    added = sum(1 for p in new_paths if p in results)
-    updated = sum(1 for p in changed_paths if p in results)
-    skipped = len(to_load) - len(results)
-    summary = f"Added {added} new, updated {updated} changed chats"
-    if newly_missing:
-        summary += f", {len(newly_missing)} archived (source file gone, kept)"
-    if reappeared:
-        summary += f", {len(reappeared)} un-archived (source file returned)"
-    if skipped:
-        summary += f" ({skipped} skipped: unreadable or mid-write)"
-    print(f"{summary}. Runtime: {runtime:.2f} seconds")
+        runtime = time.time() - start_time
+        added = sum(1 for p in new_paths if p in results)
+        updated = sum(1 for p in changed_paths if p in results)
+        skipped = len(to_load) - len(results)
+        summary = f"Added {added} new, updated {updated} changed chats"
+        if newly_missing:
+            summary += f", {len(newly_missing)} archived (source file gone, kept)"
+        if reappeared:
+            summary += f", {len(reappeared)} un-archived (source file returned)"
+        if skipped:
+            summary += f" ({skipped} skipped: unreadable or mid-write)"
+        print(f"{summary}. Runtime: {runtime:.2f} seconds")
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        sys.exit(130)

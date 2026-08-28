@@ -125,10 +125,9 @@ class TestMainLoop:
             return "ls"
 
         proc = MagicMock()
-        proc.returncode = 0
         with patch.object(run_module, "pick_action", fake_pick), patch(
-            "subprocess.run", return_value=proc
-        ):
+            "subprocess.Popen", return_value=proc
+        ), patch.object(run_module, "_wait_retrieve", return_value=0):
             run_module.main()
         assert calls["n"] == 1
 
@@ -174,3 +173,24 @@ class TestMainLoop:
         ):
             run_module.main()
         assert calls["n"] == 1
+
+
+class TestWaitRetrieve:
+    """_wait_retrieve must keep waiting when Ctrl+C lands, because retrieve
+    catches SIGINT at its prompt and keeps running."""
+
+    def test_returns_on_clean_exit(self, run_module):
+        proc = MagicMock()
+        proc.wait.return_value = 0
+        assert run_module._wait_retrieve(proc) == 0
+
+    def test_keeps_waiting_on_keyboard_interrupt(self, run_module):
+        proc = MagicMock()
+        proc.wait.side_effect = [KeyboardInterrupt, KeyboardInterrupt, 0]
+        assert run_module._wait_retrieve(proc) == 0
+        assert proc.wait.call_count == 3
+
+    def test_returns_nonzero_on_error_exit(self, run_module):
+        proc = MagicMock()
+        proc.wait.return_value = 1
+        assert run_module._wait_retrieve(proc) == 1

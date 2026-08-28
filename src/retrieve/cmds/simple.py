@@ -9,6 +9,7 @@ from ..display import time_filter_desc, TIME_LABELS
 from ..pickers import resolve_pick
 from ..actions import view_chat, copy_chat, run_chat
 from ..state import Session
+from .. import color
 
 
 def handle_view(session: Session, args):
@@ -50,7 +51,7 @@ def pick_time_with_fzf():
     """fzf-pick a time window. Returns (action, value) like parse_time_token,
     plus 'cancel' when fzf is missing or the pick was cancelled."""
     if shutil.which("fzf") is None:
-        print(f"fzf not found on PATH - install it, or use '{TIME_USAGE}'.")
+        print(color.red(f"fzf not found on PATH - install it, or use '{TIME_USAGE}'."))
         return "cancel", None
 
     # ordered (value, label); None = all time, "custom" opens the calendar picker
@@ -89,7 +90,7 @@ def handle_time(session: Session, args):
     if args:
         action, value = parse_time_token(args[0])
         if action == "error":
-            print(f"Usage: {TIME_USAGE}")
+            print(color.yellow(f"Usage: {TIME_USAGE}"))
             return
     else:
         action, value = pick_time_with_fzf()
@@ -101,7 +102,7 @@ def handle_time(session: Session, args):
         if value is None:
             return
 
-    print(f"Time filter set to {time_filter_desc(value)}.")
+    print(color.green(f"Time filter set to {time_filter_desc(value)}."))
     session.time_filter = value
 
 
@@ -116,18 +117,20 @@ def handle_len(session: Session, args):
     current = session.result_len
     if not args:
         print(
-            f"Showing {current} result{'s' if current != 1 else ''}. Usage: {LEN_USAGE}"
+            color.yellow(
+                f"Showing {current} result{'s' if current != 1 else ''}. Usage: {LEN_USAGE}"
+            )
         )
         return
 
     try:
         n = int(args[0])
     except ValueError:
-        print(f"Usage: {LEN_USAGE}")
+        print(color.yellow(f"Usage: {LEN_USAGE}"))
         return
     if not (RESULT_LEN_MIN <= n <= RESULT_LEN_MAX):
-        print(f"Usage: {LEN_USAGE}")
+        print(color.yellow(f"Usage: {LEN_USAGE}"))
         return
 
-    print(f"Result count set to {n}.")
+    print(color.green(f"Result count set to {n}."))
     session.result_len = n

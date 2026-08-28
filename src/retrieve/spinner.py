@@ -13,10 +13,15 @@ class Spinner:
         self._thread = None
 
     def _spin(self):
+        yellow = "\033[93m"
+        reset = "\033[0m"
         for ch in itertools.cycle("|/-\\"):
             if self._stop.is_set():
                 break
-            sys.stdout.write(f"\r{ch} {self.message}" if self.message else f"\r{ch} ")
+            if self.message:
+                sys.stdout.write(f"\r{yellow}{ch} {self.message}{reset}")
+            else:
+                sys.stdout.write(f"\r{yellow}{ch}{reset} ")
             sys.stdout.flush()
             time.sleep(0.1)
 
