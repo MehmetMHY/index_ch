@@ -68,19 +68,20 @@ def pick_action():
     return label_to_action.get(proc.stdout.strip(), "exit")
 
 
-# "No" first so a bare Enter is safe, matching /purge's confirmation gate.
-RETURN_NO = "No"
+# "Yes" first so a bare Enter returns to the menu after Update Cache.
 RETURN_YES = "Yes"
+RETURN_NO = "No"
 
 
 def confirm_return_to_menu():
     """Ask whether to go back to the main fzf menu after an action. Returns
-    True for Yes, False for No, cancel, or when fzf is missing."""
+    True for Yes, False for No, cancel, or when fzf is missing. Yes is the
+    default (first in the list) so a bare Enter returns to the menu."""
     if shutil.which("fzf") is None:
         return False
     proc = subprocess.run(
         ["fzf", "--prompt=return to menu? > ", "--cycle"],
-        input="\n".join([RETURN_NO, RETURN_YES]),
+        input="\n".join([RETURN_YES, RETURN_NO]),
         capture_output=True,
         text=True,
     )
