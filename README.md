@@ -99,7 +99,7 @@ At the `>` prompt:
 - Type `:archived` to toggle showing chats whose source file is gone from `~/.ch/tmp/` (kept and flagged `archived` by `build.py`). They are hidden by default, so toggle this on to search and view chats you paid to embed even after Ch drops the source file. `/run` and `/dump` warn or skip them since the file is gone, but `/view` still works (the transcript is cached in the DB).
 - Type `/purge` to permanently delete all archived chats at once (fzf-confirm, the only path that drops paid rows). Useful once you are sure you no longer want the dead-source chats around.
 - Type `/help` or `/h` to list all commands.
-- Type `quit` to exit.
+- Type `quit`, `exit`, `:q`, or `/q` to exit.
 
 ## Website
 

@@ -224,35 +224,35 @@ def print_results(results, meta, elapsed, usage):
     print(f"{gray(time_str)} {gray(f'({cost_str})')}")
 
 
-HELP_TEXT = f"""{color.UNDERLINE}Status{color.RESET}
-rerank:        {{rerank}}
-expansion:     {{expand}}
-archived:      {{archived}}
-time:          {{time_filter}}
-results:       {{result_len}}
+HELP_TEXT = f"""{color.UNDERLINE}{color.magenta("STATUS")}{color.RESET}
+{color.cyan("rerank:")}        {{rerank}}
+{color.cyan("expansion:")}     {{expand}}
+{color.cyan("archived:")}      {{archived}}
+{color.cyan("time:")}          {{time_filter}}
+{color.cyan("results:")}       {{result_len}}
 
-{color.UNDERLINE}Options{color.RESET}
-<query>        search your chats
-/view, /v      fuzzy-pick a result, open it in $EDITOR
-/view <n>      open result n directly
-/copy, /c      pick a result and copy it to clipboard
-/copy <n>      copy result n directly
-/run, /r       fuzzy-pick a result, resume it in ch (ch -f <file>)
-/run <n>       resume result n directly
-/dump, /d      pick result(s) and merge them into one file
-/dump <n> ...  dump result n (and more) directly
-/ls            browse all chats newest->oldest in fzf, pick one to open/copy
-/time, /t      pick a time window to scope searches to
-/time <win>    set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom
-/len, /l       show the current result count
-/len <n>       set how many results to show (1-25)
-:fast          toggle the LLM reranker on/off
-:expand        toggle LLM query expansion on/off
-:archived      toggle showing archived chats (source file gone) on/off
-/purge         permanently delete all archived chats (fzf-confirm)
-/help, /h      show this list
-quit, exit     exit options (p1)
-:q, /q         exit options (p2)"""
+{color.UNDERLINE}{color.magenta("OPTIONS")}{color.RESET}
+{color.cyan("<query>")}        {color.gray("search your chats")}
+{color.cyan("/view, /v")}      {color.gray("fuzzy-pick a result, open it in $EDITOR")}
+{color.cyan("/view <n>")}      {color.gray("open result n directly")}
+{color.cyan("/copy, /c")}      {color.gray("pick a result and copy it to clipboard")}
+{color.cyan("/copy <n>")}      {color.gray("copy result n directly")}
+{color.cyan("/run, /r")}       {color.gray("fuzzy-pick a result, resume it in ch (ch -f <file>)")}
+{color.cyan("/run <n>")}       {color.gray("resume result n directly")}
+{color.cyan("/dump, /d")}      {color.gray("pick result(s) and merge them into one file")}
+{color.cyan("/dump <n> ...")}  {color.gray("dump result n (and more) directly")}
+{color.cyan("/ls")}            {color.gray("browse all chats newest->oldest in fzf, pick one to open/copy")}
+{color.cyan("/time, /t")}      {color.gray("pick a time window to scope searches to")}
+{color.cyan("/time <win>")}    {color.gray("set it directly: 1d, 3d, 1w, 1m, 1y, all, or custom")}
+{color.cyan("/len, /l")}       {color.gray("show the current result count")}
+{color.cyan("/len <n>")}       {color.gray("set how many results to show (1-25)")}
+{color.cyan(":fast")}          {color.gray("toggle the LLM reranker on/off")}
+{color.cyan(":expand")}        {color.gray("toggle LLM query expansion on/off")}
+{color.cyan(":archived")}      {color.gray("toggle showing archived chats (source file gone) on/off")}
+{color.cyan("/purge")}         {color.gray("permanently delete all archived chats (fzf-confirm)")}
+{color.cyan("/help, /h")}      {color.gray("show this list")}
+{color.cyan("quit, exit")}     {color.gray("exit options (p1)")}
+{color.cyan(":q, /q")}         {color.gray("exit options (p2)")}"""
 
 
 def format_help(session: Session) -> str:
@@ -260,6 +260,6 @@ def format_help(session: Session) -> str:
         rerank=color.green("on") if session.do_rerank else color.red("off"),
         expand=color.green("on") if session.do_expand else color.red("off"),
         archived=color.green("shown") if session.show_archived else color.red("hidden"),
-        time_filter=time_filter_desc(session.time_filter),
-        result_len=session.result_len,
+        time_filter=color.yellow(time_filter_desc(session.time_filter)),
+        result_len=color.yellow(str(session.result_len)),
     )

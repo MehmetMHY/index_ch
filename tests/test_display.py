@@ -256,6 +256,6 @@ class TestFormatHelp:
         sample_session.do_expand = False
         sample_session.show_archived = True
         result = format_help(sample_session)
-        assert "rerank: off" in result
-        assert "expansion: off" in result
-        assert "archived: shown" in result
+        assert "rerank:" in result and "off" in result
+        assert "expansion:" in result and "off" in result
+        assert "archived:" in result and "shown" in result

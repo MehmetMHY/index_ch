@@ -95,7 +95,7 @@ Three scripts, run in order, plus a shared config:
   It also has `/view`/`/v`, `/copy`/`/c`, `/run`/`/r`, and `/dump`/`/d` (fzf-pick
   one of the last results, or pass a number to skip the picker; `/dump` accepts
   multiple numbers like `/dump 1 3 5` and uses fzf's `-m` multi-select mode) and
-  `/help`/`/h`. `/ls` lists every chat newest->oldest in fzf (one line each:
+  `/help`/`/h`. `quit`, `exit`, `:q`, and `/q` all exit. `/ls` lists every chat newest->oldest in fzf (one line each:
   `[MM/DD/YY•HH:MMZ] short_summary`, falling back to the filename when no
   `short_summary` is stored yet), filtered by the active `:archived` toggle and
   `/time` filter (same `chat_epoch`/`range_bounds` logic as search, applied at
