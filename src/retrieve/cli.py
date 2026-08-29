@@ -124,7 +124,7 @@ def main(argv=None):
             continue
         if not query:
             continue
-        if query.lower() in ("quit", "exit", ":q"):
+        if query.lower() in ("quit", "exit", ":q", "/q"):
             break
 
         # Ctrl+C during search, rerank, or any command handler should

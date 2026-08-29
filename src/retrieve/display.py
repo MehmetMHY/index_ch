@@ -225,11 +225,12 @@ def print_results(results, meta, elapsed, usage):
 
 
 HELP_TEXT = f"""{color.UNDERLINE}Status{color.RESET}
-rerank: {{rerank}}
-expansion: {{expand}}
-archived: {{archived}}
-time: {{time_filter}}
-results: {{result_len}}
+rerank:        {{rerank}}
+expansion:     {{expand}}
+archived:      {{archived}}
+time:          {{time_filter}}
+results:       {{result_len}}
+
 {color.UNDERLINE}Options{color.RESET}
 <query>        search your chats
 /view, /v      fuzzy-pick a result, open it in $EDITOR
@@ -250,7 +251,8 @@ results: {{result_len}}
 :archived      toggle showing archived chats (source file gone) on/off
 /purge         permanently delete all archived chats (fzf-confirm)
 /help, /h      show this list
-quit, exit, :q exit"""
+quit, exit     exit options (p1)
+:q, /q         exit options (p2)"""
 
 
 def format_help(session: Session) -> str:
