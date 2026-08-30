@@ -67,20 +67,21 @@ def pick_action():
     return label_to_action.get(proc.stdout.strip(), "exit")
 
 
-# "Yes" first so a bare Enter returns to the menu after Update Cache.
+# "No" first so a bare Enter exits after Update Cache instead of looping back.
 RETURN_YES = "Yes"
 RETURN_NO = "No"
 
 
 def confirm_return_to_menu():
     """Ask whether to go back to the main fzf menu after an action. Returns
-    True for Yes, False for No, cancel, or when fzf is missing. Yes is the
-    default (first in the list) so a bare Enter returns to the menu."""
+    True for Yes, False for No, cancel, or when fzf is missing. No is the
+    default (first in the list) so a bare Enter exits rather than looping
+    back to the menu."""
     if shutil.which("fzf") is None:
         return False
     proc = subprocess.run(
         ["fzf", "--prompt=return to menu? > ", "--cycle"],
-        input="\n".join([RETURN_YES, RETURN_NO]),
+        input="\n".join([RETURN_NO, RETURN_YES]),
         capture_output=True,
         text=True,
     )

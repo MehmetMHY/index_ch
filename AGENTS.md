@@ -238,8 +238,8 @@ script it prints a one-line status (`Scanning Ch exports...`,
 `Processing pending chats...`, `Opening smart search...`, or
 `Opening chat browser...` for `ls`) so the launcher never sits silent while a
 child process imports. `Update Cache` asks `confirm_return_to_menu` (fzf
-`return to menu? >`, default `Yes` on a bare Enter so the flow loops back to
-the main menu after the update finishes)
+`return to menu? >`, default `No` on a bare Enter so the flow exits after
+the update finishes instead of looping back to the main menu)
 _before_ the long-running build+process, so the flow is hands-off once
 decided; `Yes` returns to the main menu after it finishes, anything else
 exits. The other actions exit after one run.

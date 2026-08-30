@@ -38,6 +38,38 @@ def _fzf_pick(stdout, returncode=0):
     return proc
 
 
+class TestConfirmReturnToMenu:
+    """confirm_return_to_menu lists No first so a bare Enter (fzf's default
+    selection of the top entry) exits instead of looping back to the menu."""
+
+    def test_no_is_first_in_list(self, run_module):
+        proc = _fzf_pick("No\n")
+        with patch("shutil.which", lambda b: "/usr/local/bin/fzf"), patch(
+            "subprocess.run", return_value=proc
+        ) as mock_run:
+            assert run_module.confirm_return_to_menu() is False
+        sent_input = mock_run.call_args.kwargs["input"]
+        assert sent_input.splitlines()[0] == "No"
+
+    def test_yes_returns_true(self, run_module):
+        proc = _fzf_pick("Yes\n")
+        with patch("shutil.which", lambda b: "/usr/local/bin/fzf"), patch(
+            "subprocess.run", return_value=proc
+        ):
+            assert run_module.confirm_return_to_menu() is True
+
+    def test_cancel_returns_false(self, run_module):
+        proc = _fzf_pick("", returncode=130)
+        with patch("shutil.which", lambda b: "/usr/local/bin/fzf"), patch(
+            "subprocess.run", return_value=proc
+        ):
+            assert run_module.confirm_return_to_menu() is False
+
+    def test_missing_fzf_returns_false(self, run_module):
+        with patch("shutil.which", lambda b: None):
+            assert run_module.confirm_return_to_menu() is False
+
+
 class TestPickAction:
     def test_exit_session_label_maps_to_exit(self, run_module):
         proc = _fzf_pick("Exit Session\n")
