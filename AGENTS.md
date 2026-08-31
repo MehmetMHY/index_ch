@@ -252,8 +252,8 @@ this picker existed. It uses `env/bin/python3` when a virtual environment
 exists (`env/` stays at the root), otherwise falls back to `python3`, and
 exits non-zero on the first script failure.
 
-`docs/` is the static project website (`index.html`, `diagrams.html`, and
-`assets/`), unrelated to the Python pipeline. It is served by `docs/run.py`, a zero-dependency
+`docs/` is the static project website (`index.html` and `assets/`), unrelated
+to the Python pipeline. It is served by `docs/run.py`, a zero-dependency
 `http.server`-based dev server that localizes a canonical `<link rel=canonical>`
 origin so the page renders correctly offline, binds to `127.0.0.1` on the
 first free port in `8000`-`8099`, opens the browser, and stops on `Ctrl+C` /
@@ -266,7 +266,14 @@ view (plays once on load/scroll-in, then stops indefinitely until refreshed);
 the demo box has a fixed height so it never shifts the page as it fills, and
 its horizontal scroll is hidden but available via touch-swipe on mobile and
 click-drag on desktop (pointer-capture, 6px threshold so clicks and text
-selection are not disturbed).
+selection are not disturbed). The `how it works` section embeds two
+diagram PNGs (`docs/assets/diagrams/ingest_pipeline.png` and
+`smart_query_pipeline.png`) that were AI-generated from the original
+`docs/diagrams.html` SVG flowcharts. In dark mode the images are color
+inverted via `filter: invert(1) hue-rotate(180deg)` (the hue rotation
+preserves the orange accent), with the border moved off the `<img>` onto
+the unfiltered `<figure>` wrapper so it is not inverted along with the
+image. `diagrams.html` itself was removed once the PNGs replaced it.
 
 ## Data and storage
 

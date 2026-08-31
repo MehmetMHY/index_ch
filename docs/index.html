@@ -213,6 +213,15 @@
         border-radius: 4px;
         padding: 2px 6px;
       }
+      figure {
+        margin: var(--space-md) 0 var(--space-md);
+      }
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--rule);
+      }
       footer {
         margin-top: var(--space-lg);
       }
@@ -264,6 +273,13 @@
       }
       [data-theme="dark"] pre {
         border: 1px solid var(--code-border);
+      }
+      [data-theme="dark"] figure img {
+        border: 0;
+        filter: invert(1) hue-rotate(180deg);
+      }
+      [data-theme="dark"] figure {
+        border: 1px solid #333;
       }
       .theme-btn {
         font-family: inherit;
@@ -370,23 +386,43 @@ Type a query or /help
     </ul>
 
     <h2>how it works</h2>
-    <ol>
-      <li>
-        <strong>build</strong>: reads saved Ch sessions, strips noisy generated
-        content, and stores a cleaned local cache
-      </li>
-      <li>
-        <strong>process</strong>: summarizes each chat and prepares it for
-        semantic search
-      </li>
-      <li>
-        <strong>retrieve</strong>: search interactively, browse sessions, reopen
-        old chats, copy references, or combine related chats
-      </li>
-    </ol>
     <p>
-      Prefer a picture? The build and search flows are
-      <a href="./diagrams.html">diagrammed here</a>.
+      The <code>build.py</code> script reads raw Ch sessions from
+      <code>~/.ch/tmp/</code>, strips auto-generated noise, and diffs SHA-256
+      content hashes against the database. Unchanged files are skipped for free,
+      while deleted files are archived so cached data is never lost. The
+      <code>process.py</code> script then summarizes pending chats, creates a
+      short preview blurb, and vectorizes each summary into an embedding for
+      semantic search. Everything lands in a local on-disk SQLite database under
+      <code>~/.ch/index/</code>, so your index stays on your machine.
+    </p>
+    <figure>
+      <img
+        src="./assets/diagrams/ingest_pipeline.png"
+        alt="Cache and ingest pipeline flowchart"
+      />
+    </figure>
+    <p>
+      The <code>retrieve</code> command/feature opens an interactive prompt.
+      Each query is optionally expanded by an LLM into a few rephrased variants
+      to widen recall. The original plus those variants are batched for
+      embedding and queried against cosine similarity and an FTS5 keyword index.
+      Rankings are fused with Reciprocal Rank Fusion, then reranked by an LLM
+      against the original query with recency tiebreaking before results are
+      displayed.
+    </p>
+    <figure>
+      <img
+        src="./assets/diagrams/smart_query_pipeline.png"
+        alt="Smart search and reranking query flowchart"
+      />
+    </figure>
+    <p>
+      Speed is a priority with retrieve. The embeddings matrix is cached to disk
+      so later launches load in under a second, and API connections are warmed
+      in the background at startup. As of August 2026, rerank and query
+      expansion run on Groq-hosted models for faster inference, while embeddings
+      stay on OpenAI to preserve the stored vector space.
     </p>
 
     <h2>use cases</h2>
@@ -418,12 +454,7 @@ Type a query or /help
       answers are closer than you think.
     </p>
 
-    <footer>
-      <p>
-        The <a href="./diagrams.html">diagrams page</a> is experimental and was
-        built with AI tools; treat it as a work in progress.
-      </p>
-    </footer>
+    <footer></footer>
     <script>
       document.querySelectorAll(".theme-btn").forEach(function (btn) {
         btn.addEventListener("click", function () {
