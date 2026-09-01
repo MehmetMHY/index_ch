@@ -2,9 +2,16 @@
 
 import json
 import os
+from unittest.mock import patch, MagicMock
 import pytest
 
-from retrieve.cmds.dump import build_dump, unique_path, report_skipped
+from retrieve.cmds.dump import (
+    build_dump,
+    unique_path,
+    report_skipped,
+    load_dump_in_ch,
+    handle_dump,
+)
 
 
 @pytest.fixture
@@ -207,3 +214,52 @@ class TestReportSkipped:
         assert "Skipped 2" in out
         assert "a.json" in out
         assert "b.json" in out
+
+
+class TestLoadDumpInCh:
+    def test_missing_ch(self, capsys):
+        with patch("retrieve.cmds.dump.shutil.which", return_value=None):
+            assert (
+                load_dump_in_ch({"source_files": ["a.json"]}, "test.json", False, [])
+                is True
+            )
+            out = capsys.readouterr().out
+            assert "not found" in out
+
+    def test_cancel_confirm(self):
+        with patch(
+            "retrieve.cmds.dump.shutil.which", return_value="/usr/bin/ch"
+        ), patch("retrieve.cmds.dump.confirm_return", return_value=None), patch(
+            "retrieve.cmds.dump.subprocess.run"
+        ) as mock_run:
+            assert (
+                load_dump_in_ch({"source_files": ["a.json"]}, "test.json", False, [])
+                is True
+            )
+            mock_run.assert_not_called()
+
+    def test_no_returns_false_and_no_prompt(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr("retrieve.cmds.dump.TMP_DIR", str(tmp_path))
+        with patch(
+            "retrieve.cmds.dump.shutil.which", return_value="/usr/bin/ch"
+        ), patch("retrieve.cmds.dump.confirm_return", return_value=False), patch(
+            "retrieve.cmds.dump.subprocess.run"
+        ) as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            res = load_dump_in_ch({"source_files": ["a.json"]}, "test.json", False, [])
+            assert res is False
+            out = capsys.readouterr().out
+            assert "Type a query or /help" not in out
+
+    def test_yes_returns_true_and_prints_prompt(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr("retrieve.cmds.dump.TMP_DIR", str(tmp_path))
+        with patch(
+            "retrieve.cmds.dump.shutil.which", return_value="/usr/bin/ch"
+        ), patch("retrieve.cmds.dump.confirm_return", return_value=True), patch(
+            "retrieve.cmds.dump.subprocess.run"
+        ) as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            res = load_dump_in_ch({"source_files": ["a.json"]}, "test.json", False, [])
+            assert res is True
+            out = capsys.readouterr().out
+            assert "Type a query or /help" in out

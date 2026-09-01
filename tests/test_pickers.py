@@ -1,9 +1,15 @@
 """Tests for retrieve/pickers.py: resolve_pick and resolve_picks."""
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
-from retrieve.pickers import resolve_pick, resolve_picks
+from retrieve.pickers import (
+    resolve_pick,
+    resolve_picks,
+    confirm_return,
+    RETURN_NO,
+    RETURN_YES,
+)
 
 
 @pytest.fixture
@@ -106,3 +112,33 @@ class TestResolvePicks:
     def test_boundary_last(self, last_results, meta):
         result = resolve_picks(["3"], last_results, meta, "/dump")
         assert result == [30]
+
+
+class TestConfirmReturn:
+    def test_no_is_default_and_returns_false(self):
+        proc = MagicMock(returncode=0, stdout="No\n")
+        with patch("retrieve.pickers.shutil.which", return_value="/usr/bin/fzf"), patch(
+            "retrieve.pickers.subprocess.run", return_value=proc
+        ) as mock_run:
+            assert confirm_return("prompt> ") is False
+            sent_input = mock_run.call_args.kwargs["input"]
+            assert sent_input.splitlines()[0] == "No"
+            assert mock_run.call_args[0][0] == ["fzf", "--prompt=prompt> ", "--cycle"]
+
+    def test_yes_returns_true(self):
+        proc = MagicMock(returncode=0, stdout="Yes\n")
+        with patch("retrieve.pickers.shutil.which", return_value="/usr/bin/fzf"), patch(
+            "retrieve.pickers.subprocess.run", return_value=proc
+        ):
+            assert confirm_return() is True
+
+    def test_cancel_returns_none(self):
+        proc = MagicMock(returncode=130, stdout="")
+        with patch("retrieve.pickers.shutil.which", return_value="/usr/bin/fzf"), patch(
+            "retrieve.pickers.subprocess.run", return_value=proc
+        ):
+            assert confirm_return() is None
+
+    def test_missing_fzf_returns_true(self):
+        with patch("retrieve.pickers.shutil.which", return_value=None):
+            assert confirm_return() is True

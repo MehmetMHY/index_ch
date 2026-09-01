@@ -147,23 +147,111 @@ class TestHandleLS:
         with patch(
             "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(None, None)
         ), patch("retrieve.cmds.ls.pick_ls_action") as mock_pick_action:
-            handle_ls(db_with_chats, show_archived=False, time_filter=None)
+            res = handle_ls(db_with_chats, show_archived=False, time_filter=None)
+            assert res is True
             mock_pick_action.assert_not_called()
 
-    def test_run_action_passes_reprint_prompt(self, db_with_chats):
+    def test_standalone_no_exits(self, db_with_chats):
         info = {"file_path": "/tmp/ch_session_1.json"}
         with patch(
             "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(1, info)
         ), patch("retrieve.cmds.ls.pick_ls_action", return_value="run"), patch(
+            "retrieve.cmds.ls.shutil.which", return_value="/usr/bin/ch"
+        ), patch(
+            "retrieve.cmds.ls.confirm_return", return_value=False
+        ), patch(
             "retrieve.cmds.ls.run_chat"
         ) as mock_run_chat:
-            handle_ls(
+            res = handle_ls(
                 db_with_chats,
                 show_archived=False,
                 time_filter=None,
-                reprint_prompt=False,
+                in_search=False,
             )
+            assert res is True
             mock_run_chat.assert_called_once_with(1, {1: info}, reprint_prompt=False)
+
+    def test_standalone_yes_loops(self, db_with_chats):
+        info = {"file_path": "/tmp/ch_session_1.json"}
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf",
+            side_effect=[(1, info), (None, None)],
+        ), patch("retrieve.cmds.ls.pick_ls_action", return_value="run"), patch(
+            "retrieve.cmds.ls.shutil.which", return_value="/usr/bin/ch"
+        ), patch(
+            "retrieve.cmds.ls.confirm_return", return_value=True
+        ), patch(
+            "retrieve.cmds.ls.run_chat"
+        ) as mock_run_chat:
+            res = handle_ls(
+                db_with_chats,
+                show_archived=False,
+                time_filter=None,
+                in_search=False,
+            )
+            assert res is True
+            mock_run_chat.assert_called_once_with(1, {1: info}, reprint_prompt=False)
+
+    def test_standalone_cancel_confirm_loops(self, db_with_chats):
+        info = {"file_path": "/tmp/ch_session_1.json"}
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf",
+            side_effect=[(1, info), (None, None)],
+        ), patch("retrieve.cmds.ls.pick_ls_action", return_value="run"), patch(
+            "retrieve.cmds.ls.shutil.which", return_value="/usr/bin/ch"
+        ), patch(
+            "retrieve.cmds.ls.confirm_return", return_value=None
+        ), patch(
+            "retrieve.cmds.ls.run_chat"
+        ) as mock_run_chat:
+            res = handle_ls(
+                db_with_chats,
+                show_archived=False,
+                time_filter=None,
+                in_search=False,
+            )
+            assert res is True
+            mock_run_chat.assert_not_called()
+
+    def test_search_no_exits_repl(self, db_with_chats):
+        info = {"file_path": "/tmp/ch_session_1.json"}
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(1, info)
+        ), patch("retrieve.cmds.ls.pick_ls_action", return_value="run"), patch(
+            "retrieve.cmds.ls.shutil.which", return_value="/usr/bin/ch"
+        ), patch(
+            "retrieve.cmds.ls.confirm_return", return_value=False
+        ), patch(
+            "retrieve.cmds.ls.run_chat"
+        ) as mock_run_chat:
+            res = handle_ls(
+                db_with_chats,
+                show_archived=False,
+                time_filter=None,
+                in_search=True,
+            )
+            assert res is False
+            mock_run_chat.assert_called_once_with(1, {1: info}, reprint_prompt=False)
+
+    def test_search_yes_returns_to_repl(self, db_with_chats):
+        info = {"file_path": "/tmp/ch_session_1.json"}
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(1, info)
+        ), patch("retrieve.cmds.ls.pick_ls_action", return_value="run"), patch(
+            "retrieve.cmds.ls.shutil.which", return_value="/usr/bin/ch"
+        ), patch(
+            "retrieve.cmds.ls.confirm_return", return_value=True
+        ), patch(
+            "retrieve.cmds.ls.run_chat"
+        ) as mock_run_chat:
+            res = handle_ls(
+                db_with_chats,
+                show_archived=False,
+                time_filter=None,
+                in_search=True,
+            )
+            assert res is True
+            mock_run_chat.assert_called_once_with(1, {1: info}, reprint_prompt=True)
 
     def test_copy_action(self, db_with_chats):
         info = {"file_path": "/tmp/ch_session_1.json"}
@@ -172,5 +260,8 @@ class TestHandleLS:
         ), patch("retrieve.cmds.ls.pick_ls_action", return_value="copy"), patch(
             "retrieve.cmds.ls.copy_chat"
         ) as mock_copy_chat:
-            handle_ls(db_with_chats, show_archived=False, time_filter=None)
+            res = handle_ls(
+                db_with_chats, show_archived=False, time_filter=None, in_search=True
+            )
+            assert res is True
             mock_copy_chat.assert_called_once_with(1, {1: info})

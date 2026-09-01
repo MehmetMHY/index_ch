@@ -155,6 +155,30 @@ class TestPromptInterrupt:
             rc = cli.main([""])
         assert rc == 0
 
+    def test_run_false_exits_repl(self, monkeypatch):
+        cli = self._setup_cli(monkeypatch)
+        monkeypatch.setattr("builtins.input", lambda prompt: "/run 1")
+        monkeypatch.setattr(cli, "handle_run", lambda session, args: False)
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0
+
+    def test_dump_false_exits_repl(self, monkeypatch):
+        cli = self._setup_cli(monkeypatch)
+        monkeypatch.setattr("builtins.input", lambda prompt: "/dump 1")
+        monkeypatch.setattr(cli, "handle_dump", lambda session, args: False)
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0
+
+    def test_ls_false_exits_repl(self, monkeypatch):
+        cli = self._setup_cli(monkeypatch)
+        monkeypatch.setattr("builtins.input", lambda prompt: "/ls")
+        monkeypatch.setattr(cli, "handle_ls", lambda conn, arch, tf, in_search: False)
+        with patch("builtins.print"):
+            rc = cli.main([""])
+        assert rc == 0
+
 
 class TestStartupCommands:
     def test_startup_ls_calls_handle_ls_without_prompt(self, monkeypatch):
@@ -171,6 +195,4 @@ class TestStartupCommands:
         with patch("retrieve.cli.handle_ls") as mock_handle_ls:
             rc = cli.main(["ls"])
             assert rc == 0
-            mock_handle_ls.assert_called_once_with(
-                conn, False, None, reprint_prompt=False
-            )
+            mock_handle_ls.assert_called_once_with(conn, False, None, in_search=False)

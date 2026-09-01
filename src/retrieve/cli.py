@@ -58,7 +58,7 @@ def main(argv=None):
             backfill_archived(conn)
             stop_startup_spinner()
             _drain_stdin()
-            handle_ls(conn, False, None, reprint_prompt=False)
+            handle_ls(conn, False, None, in_search=False)
         except KeyboardInterrupt:
             print()
         finally:
@@ -162,13 +162,21 @@ def main(argv=None):
                 handle_copy(session, parts[1:])
                 continue
             if parts[0].lower() in ("/run", "/r"):
-                handle_run(session, parts[1:])
+                if not handle_run(session, parts[1:]):
+                    break
                 continue
             if parts[0].lower() in ("/dump", "/d"):
-                handle_dump(session, parts[1:])
+                if not handle_dump(session, parts[1:]):
+                    break
                 continue
             if parts[0].lower() == "/ls":
-                handle_ls(session.conn, session.show_archived, session.time_filter)
+                if not handle_ls(
+                    session.conn,
+                    session.show_archived,
+                    session.time_filter,
+                    in_search=True,
+                ):
+                    break
                 continue
             if parts[0].lower() in ("/time", "/t"):
                 handle_time(session, parts[1:])

@@ -6,6 +6,28 @@ import subprocess
 from .display import chat_epoch, format_list_timestamp, format_timestamp, chat_preview
 from . import color
 
+RETURN_YES = "Yes"
+RETURN_NO = "No"
+
+
+def confirm_return(prompt="return to search? > "):
+    """Ask whether to return to search/chats after running ch. Returns True for
+    Yes (launch ch, then return), False for No (launch ch, then exit session),
+    or None if cancelled (Esc / Ctrl-C, do not launch ch). No is the default
+    (first in the list) so a bare Enter launches ch and exits immediately upon
+    return. When fzf is missing, defaults to True."""
+    if shutil.which("fzf") is None:
+        return True
+    proc = subprocess.run(
+        ["fzf", f"--prompt={prompt}", "--cycle"],
+        input="\n".join([RETURN_NO, RETURN_YES]),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return proc.stdout.strip() == RETURN_YES
+
 
 def pick_with_fzf(last_results, meta, hint):
     """Fuzzy-pick one of the last results with fzf. Returns a chat id, or None

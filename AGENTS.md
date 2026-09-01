@@ -123,9 +123,10 @@ Three scripts, run in order, plus a shared config:
   chat's filename (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
   `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
-  resume that session inside Ch, handing over the terminal until Ch exits; on
-  return it reprints `Type a query or /help` so the prompt is not bare (and
-  surfaces a non-zero `ch` exit status if any).
+  resume that session inside Ch after an fzf preflight (`return to search? > No / Yes`,
+  defaulting to `No` so a bare Enter launches Ch and exits cleanly to shell when
+  done; `Yes` returns to the search prompt and reprints `Type a query or /help`;
+  `Esc`/`Ctrl-C` cancels launch). Surfaces a non-zero `ch` exit status if any.
   `/dump` merges the picked chats' messages into a single ch-resumable log:
   chats are ordered oldest to newest (by `chat_epoch`), each chat's own
   messages stay together and in order (no interleaving), and every message is
@@ -149,8 +150,9 @@ Downloads` does the same but moves the temp file to `~/Downloads` on exit
   silently overwrites. The destination menu requires `fzf` (prints an error and
   aborts the dump if missing, even when the chats were picked by number), and
   the two "Load" options require `ch` on PATH. Like `/run`, both "Load"
-  options reprint `Type a query or /help` (and a non-zero `ch` exit status, if
-  any) after Ch exits. Skips unreadable files with a
+  options ask `return to search? > No / Yes` before launching Ch, and reprint
+  `Type a query or /help` (and surface a non-zero `ch` exit status, if
+  any) after Ch exits when returning to search. Skips unreadable files with a
   printed warning. The chat picker itself requires `fzf` (degrades to a message
   telling the user to pass a number if it's missing); `/run` requires `ch` on
   PATH.

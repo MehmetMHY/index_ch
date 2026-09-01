@@ -12,6 +12,7 @@ from preview import preview_chat_with_conn, compute_and_save_preview
 from ..spinner import Spinner
 from ..display import chat_epoch, format_list_timestamp, chat_preview
 from ..actions import run_chat, copy_chat
+from ..pickers import confirm_return
 from ..state import Session
 from .. import color
 
@@ -209,19 +210,45 @@ def pick_latest_with_fzf(rows):
     return cid, info_map[cid]
 
 
-def handle_ls(conn, show_archived, time_filter, reprint_prompt=True):
+def handle_ls(conn, show_archived, time_filter, in_search=False):
     """List all chats newest->oldest in fzf (short summary per line). Picking
-    one opens a second fzf menu: open in ch, copy filename, or cancel."""
-    rows = list_chats_by_recency(conn, show_archived, time_filter)
-    cid, info = pick_latest_with_fzf(rows)
-    if cid is None:
-        return
+    one opens a second fzf menu: open in ch, copy filename, or cancel.
+    When in_search is True, return prompt asks 'return to search?' and returning
+    False exits the search REPL; when in_search is False (standalone ls),
+    asking 'return to chats?' allows continuing to browse chats when Yes."""
+    prompt = "return to search? > " if in_search else "return to chats? > "
+    while True:
+        rows = list_chats_by_recency(conn, show_archived, time_filter)
+        cid, info = pick_latest_with_fzf(rows)
+        if cid is None:
+            return True
 
-    action = pick_ls_action()
-    if action == "run":
-        run_chat(cid, {cid: info}, reprint_prompt=reprint_prompt)
-    elif action == "copy":
-        copy_chat(cid, {cid: info})
+        action = pick_ls_action()
+        if action == "cancel":
+            if not in_search:
+                continue
+            return True
+        elif action == "copy":
+            copy_chat(cid, {cid: info})
+            if not in_search:
+                continue
+            return True
+        elif action == "run":
+            if shutil.which("ch") is None:
+                print(
+                    color.red("ch not found on PATH - https://github.com/MehmetMHY/ch")
+                )
+                return True
+            ret = confirm_return(prompt)
+            if ret is None:
+                continue
+            run_chat(cid, {cid: info}, reprint_prompt=(ret and in_search))
+            if in_search:
+                return ret
+            else:
+                if ret:
+                    continue
+                return True
 
 
 # /purge: permanently delete all archived chats (source file gone). Destructive:

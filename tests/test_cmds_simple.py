@@ -7,6 +7,9 @@ from retrieve.cmds.simple import (
     parse_time_token,
     handle_len,
     handle_time,
+    handle_run,
+    handle_view,
+    handle_copy,
     RESULT_LEN_MIN,
     RESULT_LEN_MAX,
     LEN_USAGE,
@@ -144,3 +147,46 @@ class TestHandleTime:
         ):
             handle_time(sample_session, [])
             assert sample_session.time_filter == "1w"
+
+
+class TestHandleRun:
+    def test_no_pick(self, sample_session):
+        with patch("retrieve.cmds.simple.resolve_pick", return_value=None):
+            assert handle_run(sample_session, ["1"]) is True
+
+    def test_missing_ch(self, sample_session):
+        with patch("retrieve.cmds.simple.resolve_pick", return_value=1), patch(
+            "retrieve.cmds.simple.shutil.which", return_value=None
+        ):
+            assert handle_run(sample_session, ["1"]) is True
+
+    def test_cancel_confirm(self, sample_session):
+        with patch("retrieve.cmds.simple.resolve_pick", return_value=1), patch(
+            "retrieve.cmds.simple.shutil.which", return_value="/usr/bin/ch"
+        ), patch("retrieve.cmds.simple.confirm_return", return_value=None), patch(
+            "retrieve.cmds.simple.run_chat"
+        ) as mock_run_chat:
+            assert handle_run(sample_session, ["1"]) is True
+            mock_run_chat.assert_not_called()
+
+    def test_no_exits_repl(self, sample_session):
+        with patch("retrieve.cmds.simple.resolve_pick", return_value=1), patch(
+            "retrieve.cmds.simple.shutil.which", return_value="/usr/bin/ch"
+        ), patch("retrieve.cmds.simple.confirm_return", return_value=False), patch(
+            "retrieve.cmds.simple.run_chat"
+        ) as mock_run_chat:
+            assert handle_run(sample_session, ["1"]) is False
+            mock_run_chat.assert_called_once_with(
+                1, sample_session.meta, reprint_prompt=False
+            )
+
+    def test_yes_stays_in_repl(self, sample_session):
+        with patch("retrieve.cmds.simple.resolve_pick", return_value=1), patch(
+            "retrieve.cmds.simple.shutil.which", return_value="/usr/bin/ch"
+        ), patch("retrieve.cmds.simple.confirm_return", return_value=True), patch(
+            "retrieve.cmds.simple.run_chat"
+        ) as mock_run_chat:
+            assert handle_run(sample_session, ["1"]) is True
+            mock_run_chat.assert_called_once_with(
+                1, sample_session.meta, reprint_prompt=True
+            )

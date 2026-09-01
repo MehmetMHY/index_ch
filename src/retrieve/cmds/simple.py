@@ -6,7 +6,7 @@ from config import TIME_RANGES
 from input_time import pick_time_range
 
 from ..display import time_filter_desc, TIME_LABELS
-from ..pickers import resolve_pick
+from ..pickers import resolve_pick, confirm_return
 from ..actions import view_chat, copy_chat, run_chat
 from ..state import Session
 from .. import color
@@ -26,8 +26,16 @@ def handle_copy(session: Session, args):
 
 def handle_run(session: Session, args):
     cid = resolve_pick(args, session.last_results, session.meta, "/run")
-    if cid is not None:
-        run_chat(cid, session.meta)
+    if cid is None:
+        return True
+    if shutil.which("ch") is None:
+        print(color.red("ch not found on PATH - https://github.com/MehmetMHY/ch"))
+        return True
+    ret = confirm_return("return to search? > ")
+    if ret is None:
+        return True
+    run_chat(cid, session.meta, reprint_prompt=ret)
+    return ret
 
 
 # /time: scope searches to a time window

@@ -7,7 +7,7 @@ import subprocess
 from config import TMP_DIR
 
 from ..display import chat_epoch
-from ..pickers import resolve_picks
+from ..pickers import resolve_picks, confirm_return
 from ..state import Session
 from .. import color
 
@@ -131,7 +131,11 @@ def load_dump_in_ch(merged, filename, keep, skipped):
     try/finally guarantees the temp file is never orphaned, even on Ctrl-C."""
     if shutil.which("ch") is None:
         print(color.red("ch not found on PATH - https://github.com/MehmetMHY/ch"))
-        return
+        return True
+
+    ret = confirm_return("return to search? > ")
+    if ret is None:
+        return True
 
     tmp_path = os.path.join(TMP_DIR, filename)
     with open(tmp_path, "w") as f:
@@ -155,8 +159,10 @@ def load_dump_in_ch(merged, filename, keep, skipped):
             os.remove(tmp_path)
     if result is not None and result.returncode != 0:
         print(color.red(f"ch exited with status {result.returncode}."))
-    print(color.blue("Type a query or /help"))
+    if ret:
+        print(color.blue("Type a query or /help"))
     report_skipped(skipped)
+    return ret
 
 
 def handle_dump(session: Session, args):
@@ -166,19 +172,20 @@ def handle_dump(session: Session, args):
     ~/Downloads, or cancel."""
     cids = resolve_picks(args, session.last_results, session.meta, "/dump")
     if not cids:
-        return
+        return True
 
     built = build_dump(cids, session.meta)
     if built is None:
-        return
+        return True
     merged, skipped = built
 
     action = pick_dump_action()
     if action == "cancel":
-        return
+        return True
 
     filename = f"index_ch_dump_{len(merged['source_files'])}_{int(time.time())}.json"
     if action == "downloads":
         save_dump_to_downloads(merged, filename, skipped)
+        return True
     else:  # "load" or "load_keep"
-        load_dump_in_ch(merged, filename, action == "load_keep", skipped)
+        return load_dump_in_ch(merged, filename, action == "load_keep", skipped)
