@@ -91,7 +91,7 @@ def copy_chat(cid, meta):
         print(color.green(f"Copied {name} to clipboard{note}."))
 
 
-def run_chat(cid, meta):
+def run_chat(cid, meta, reprint_prompt=True):
     """Hand the terminal over to `ch -f <name>` to resume the session in Ch."""
     if shutil.which("ch") is None:
         print(color.red("ch not found on PATH - https://github.com/MehmetMHY/ch"))
@@ -107,4 +107,5 @@ def run_chat(cid, meta):
     result = subprocess.run(["ch", "-f", name])
     if result.returncode != 0:
         print(color.red(f"ch exited with status {result.returncode}."))
-    print(color.blue("Type a query or /help"))
+    if reprint_prompt:
+        print(color.blue("Type a query or /help"))

@@ -209,7 +209,7 @@ def pick_latest_with_fzf(rows):
     return cid, info_map[cid]
 
 
-def handle_ls(conn, show_archived, time_filter):
+def handle_ls(conn, show_archived, time_filter, reprint_prompt=True):
     """List all chats newest->oldest in fzf (short summary per line). Picking
     one opens a second fzf menu: open in ch, copy filename, or cancel."""
     rows = list_chats_by_recency(conn, show_archived, time_filter)
@@ -219,7 +219,7 @@ def handle_ls(conn, show_archived, time_filter):
 
     action = pick_ls_action()
     if action == "run":
-        run_chat(cid, {cid: info})
+        run_chat(cid, {cid: info}, reprint_prompt=reprint_prompt)
     elif action == "copy":
         copy_chat(cid, {cid: info})
 

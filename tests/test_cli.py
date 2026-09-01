@@ -154,3 +154,23 @@ class TestPromptInterrupt:
         with patch("builtins.print"):
             rc = cli.main([""])
         assert rc == 0
+
+
+class TestStartupCommands:
+    def test_startup_ls_calls_handle_ls_without_prompt(self, monkeypatch):
+        import retrieve.cli as cli
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        monkeypatch.setattr(cli, "get_connection", lambda: conn)
+        monkeypatch.setattr(cli, "backfill_message_epochs", lambda c: None)
+        monkeypatch.setattr(cli, "backfill_archived", lambda c: None)
+        monkeypatch.setattr(cli, "stop_startup_spinner", lambda: None)
+        monkeypatch.setattr(cli, "_drain_stdin", lambda: None)
+
+        with patch("retrieve.cli.handle_ls") as mock_handle_ls:
+            rc = cli.main(["ls"])
+            assert rc == 0
+            mock_handle_ls.assert_called_once_with(
+                conn, False, None, reprint_prompt=False
+            )

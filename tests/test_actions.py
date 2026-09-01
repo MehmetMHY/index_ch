@@ -188,10 +188,18 @@ class TestRunChat:
                 out = capsys.readouterr().out
                 assert "status 1" in out
 
-    def test_always_prints_prompt(self, sample_meta, capsys):
+    def test_reprint_prompt_default_true(self, sample_meta, capsys):
         with patch("retrieve.actions.shutil.which", return_value="/usr/bin/ch"):
             with patch("retrieve.actions.subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0)
                 run_chat(1, sample_meta)
                 out = capsys.readouterr().out
                 assert "Type a query or /help" in out
+
+    def test_reprint_prompt_false(self, sample_meta, capsys):
+        with patch("retrieve.actions.shutil.which", return_value="/usr/bin/ch"):
+            with patch("retrieve.actions.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+                run_chat(1, sample_meta, reprint_prompt=False)
+                out = capsys.readouterr().out
+                assert "Type a query or /help" not in out

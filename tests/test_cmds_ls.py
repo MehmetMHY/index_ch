@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 
 from retrieve.cmds.ls import (
     list_chats_by_recency,
+    handle_ls,
     handle_purge,
     PURGE_NO,
     PURGE_YES_TMPL,
@@ -139,3 +140,37 @@ class TestLSActions:
         assert "run" in actions.values()
         assert "copy" in actions.values()
         assert "cancel" in actions.values()
+
+
+class TestHandleLS:
+    def test_cancelled_selection(self, db_with_chats):
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(None, None)
+        ), patch("retrieve.cmds.ls.pick_ls_action") as mock_pick_action:
+            handle_ls(db_with_chats, show_archived=False, time_filter=None)
+            mock_pick_action.assert_not_called()
+
+    def test_run_action_passes_reprint_prompt(self, db_with_chats):
+        info = {"file_path": "/tmp/ch_session_1.json"}
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(1, info)
+        ), patch("retrieve.cmds.ls.pick_ls_action", return_value="run"), patch(
+            "retrieve.cmds.ls.run_chat"
+        ) as mock_run_chat:
+            handle_ls(
+                db_with_chats,
+                show_archived=False,
+                time_filter=None,
+                reprint_prompt=False,
+            )
+            mock_run_chat.assert_called_once_with(1, {1: info}, reprint_prompt=False)
+
+    def test_copy_action(self, db_with_chats):
+        info = {"file_path": "/tmp/ch_session_1.json"}
+        with patch(
+            "retrieve.cmds.ls.pick_latest_with_fzf", return_value=(1, info)
+        ), patch("retrieve.cmds.ls.pick_ls_action", return_value="copy"), patch(
+            "retrieve.cmds.ls.copy_chat"
+        ) as mock_copy_chat:
+            handle_ls(db_with_chats, show_archived=False, time_filter=None)
+            mock_copy_chat.assert_called_once_with(1, {1: info})

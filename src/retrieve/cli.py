@@ -58,7 +58,7 @@ def main(argv=None):
             backfill_archived(conn)
             stop_startup_spinner()
             _drain_stdin()
-            handle_ls(conn, False, None)
+            handle_ls(conn, False, None, reprint_prompt=False)
         except KeyboardInterrupt:
             print()
         finally:
