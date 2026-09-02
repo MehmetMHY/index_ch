@@ -253,10 +253,10 @@ def handle_ls(conn, show_archived, time_filter, in_search=False):
 
 # /purge: permanently delete all archived chats (source file gone). Destructive:
 # drops paid summaries/embeddings, so it is gated behind an fzf confirmation.
-# "No" is listed first and is the default on a bare Enter. The choice labels
+# "no" is listed first and is the default on a bare Enter. The choice labels
 # carry the count so the user sees the blast radius before confirming.
-PURGE_NO = "No (keep archived chats)"
-PURGE_YES_TMPL = "Yes, delete {count} archived chat(s)"
+PURGE_NO = "no (keep archived chats)"
+PURGE_YES_TMPL = "yes, delete {count} archived chat(s)"
 
 
 def handle_purge(conn):

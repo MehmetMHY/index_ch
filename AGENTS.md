@@ -123,9 +123,9 @@ Three scripts, run in order, plus a shared config:
   chat's filename (`ch_session_<epoch>.json`) to the clipboard (`pbcopy`/`clip`
   /`wl-copy`/`xclip`/`xsel` depending on OS). `/run` shells out to
   `ch -f <file>` (Ch's own `-f`/`--fetch` flag accepts a bare filename) to
-  resume that session inside Ch after an fzf preflight (`return to search? > No / Yes`,
-  defaulting to `No` so a bare Enter launches Ch and exits cleanly to shell when
-  done; `Yes` returns to the search prompt and reprints `Type a query or /help`;
+  resume that session inside Ch after an fzf preflight (`return to search? > no / yes`,
+  defaulting to `no` so a bare Enter launches Ch and exits cleanly to shell when
+  done; `yes` returns to the search prompt and reprints `Type a query or /help`;
   `Esc`/`Ctrl-C` cancels launch). Surfaces a non-zero `ch` exit status if any.
   `/dump` merges the picked chats' messages into a single ch-resumable log:
   chats are ordered oldest to newest (by `chat_epoch`), each chat's own
@@ -150,7 +150,7 @@ Downloads` does the same but moves the temp file to `~/Downloads` on exit
   silently overwrites. The destination menu requires `fzf` (prints an error and
   aborts the dump if missing, even when the chats were picked by number), and
   the two "Load" options require `ch` on PATH. Like `/run`, both "Load"
-  options ask `return to search? > No / Yes` before launching Ch, and reprint
+  options ask `return to search? > no / yes` before launching Ch, and reprint
   `Type a query or /help` (and surface a non-zero `ch` exit status, if
   any) after Ch exits when returning to search. Skips unreadable files with a
   printed warning. The chat picker itself requires `fzf` (degrades to a message
@@ -260,7 +260,7 @@ The REPL loop in `run.py`:
 The unified fzf split-view explorer:
 
 - Left pane displays ranked or recency-sorted chats as
-  `0001  MM/DD/YYYY HH:MMZ  ch_session_<epoch>.json`.
+  `00001  MM/DD/YYYY HH:MMZ  ch_session_<epoch>.json`.
 - Right pane displays pre-rendered previews via `explorer_preview.py` with the
   action legend at the top, followed by title, metadata, summary, and
   conversation transcript. Previews are precomputed in parallel
@@ -492,7 +492,7 @@ unprompted.
   and only for rows not already flagged (so a steady-state build does not bump
   `updated_at` and needlessly invalidate `retrieve`'s caches). `/purge` is
   the only path that drops archived rows: it `DELETE`s every `archived = 1`
-  chat after an fzf confirmation ("No" first so a bare Enter is safe; both
+  chat after an fzf confirmation ("no" first so a bare Enter is safe; both
   choice labels carry the row count so the user sees the blast radius), then the caller reloads `ids/mat/meta` via `load_vectors` and
   rebuilds FTS via `ensure_fts` in place, since the row set and the embeddings
   cache signature (count:latest) both changed. This is the one destructive op

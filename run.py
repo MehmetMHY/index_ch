@@ -232,6 +232,7 @@ def open_explorer(cids, conn, meta, is_search=False):
     temp_dir = tempfile.mkdtemp(prefix="index_ch_explorer_")
 
     # Build fzf input lines
+    rank_width = max(3, len(str(len(cids))))
     lines = []
     for rank, cid in enumerate(cids, 1):
         info = meta.get(cid, {})
@@ -240,7 +241,7 @@ def open_explorer(cids, conn, meta, is_search=False):
         )
         ts = format_ts(epoch)
         name = os.path.basename(info.get("file_path", f"chat_{cid}.json"))
-        lines.append(f"{cid}\t{rank:04d}  {ts}  {name}")
+        lines.append(f"{cid}\t{rank:0{rank_width}d}  {ts}  {name}")
 
     # Pre-render previews: few results synchronously, many in parallel + background
     stop_event = None

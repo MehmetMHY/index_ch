@@ -37,7 +37,7 @@ The Python scripts live in `src/`, with `run.py` at the repo root as a convenien
 
 ## Setup
 
-Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run` and `/ls` to resume a session). Model pricing for the cost estimates the scripts print is fetched from the [models.dev](https://models.dev/) API and cached locally for a few days; models.dev is an open-source model catalog maintained by the [Opencode](https://opencode.ai/) CLI team.
+Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by the `run.py` split-view explorer and `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run`, `/ls`, and the explorer to resume a session). Model pricing for the cost estimates the scripts print is fetched from the [models.dev](https://models.dev/) API and cached locally for a few days; models.dev is an open-source model catalog maintained by the [Opencode](https://opencode.ai/) CLI team.
 
 Create a virtual environment and install dependencies:
 

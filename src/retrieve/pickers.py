@@ -6,8 +6,8 @@ import subprocess
 from .display import chat_epoch, format_list_timestamp, format_timestamp, chat_preview
 from . import color
 
-RETURN_YES = "Yes"
-RETURN_NO = "No"
+RETURN_YES = "yes"
+RETURN_NO = "no"
 
 
 def confirm_return(prompt="return to search? > "):

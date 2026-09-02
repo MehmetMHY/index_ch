@@ -204,7 +204,7 @@ class TestOpenExplorer:
 
     def test_enter_key_dispatches_action_open_in_ch(self, run_module, monkeypatch):
         # fzf with --expect outputs an empty string on line 1 when Enter is pressed
-        proc = _fzf_pick("\n1\t0001  01/01/2025 00:00Z  ch_session_1.json\n")
+        proc = _fzf_pick("\n1\t001  01/01/2025 00:00Z  ch_session_1.json\n")
         called = []
         monkeypatch.setattr(
             run_module,
@@ -219,7 +219,7 @@ class TestOpenExplorer:
         assert called == [([1], False)]
 
     def test_ctrl_v_dispatches_action_view_editor(self, run_module, monkeypatch):
-        proc = _fzf_pick("ctrl-v\n1\t0001  01/01/2025 00:00Z  ch_session_1.json\n")
+        proc = _fzf_pick("ctrl-v\n1\t001  01/01/2025 00:00Z  ch_session_1.json\n")
         called = []
         monkeypatch.setattr(
             run_module, "action_view_editor", lambda cid, conn, meta: called.append(cid)
@@ -232,7 +232,7 @@ class TestOpenExplorer:
         assert called == [1]
 
     def test_ctrl_y_dispatches_action_copy_filenames(self, run_module, monkeypatch):
-        proc = _fzf_pick("ctrl-y\n1\t0001  01/01/2025 00:00Z  ch_session_1.json\n")
+        proc = _fzf_pick("ctrl-y\n1\t001  01/01/2025 00:00Z  ch_session_1.json\n")
         called = []
         monkeypatch.setattr(
             run_module, "action_copy_filenames", lambda cids, meta: called.append(cids)
@@ -245,7 +245,7 @@ class TestOpenExplorer:
         assert called == [[1]]
 
     def test_ctrl_s_dispatches_action_save_downloads(self, run_module, monkeypatch):
-        proc = _fzf_pick("ctrl-s\n1\t0001  01/01/2025 00:00Z  ch_session_1.json\n")
+        proc = _fzf_pick("ctrl-s\n1\t001  01/01/2025 00:00Z  ch_session_1.json\n")
         called = []
         monkeypatch.setattr(
             run_module,
@@ -258,6 +258,27 @@ class TestOpenExplorer:
             meta = {1: {"file_path": "/tmp/ch_session_1.json"}}
             run_module.open_explorer([1], MagicMock(), meta)
         assert called == [[1]]
+
+    def test_dynamic_rank_padding(self, run_module, monkeypatch):
+        """Rank numbers dynamically pad to match the total count digits (min 3)."""
+        captured_lines = []
+
+        def fake_run(cmd, input="", **kwargs):
+            captured_lines.extend(input.splitlines())
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.stdout = "\n"
+            return proc
+
+        meta = {i: {"file_path": f"/tmp/ch_session_{i}.json"} for i in range(1, 1001)}
+        with patch("shutil.which", lambda b: "/usr/local/bin/fzf"), patch(
+            "subprocess.run", side_effect=fake_run
+        ):
+            # 1000 items -> 4 digits (0001 to 1000)
+            run_module.open_explorer(list(range(1, 1001)), MagicMock(), meta)
+
+        assert "1\t0001  " in captured_lines[0]
+        assert "1000\t1000  " in captured_lines[-1]
 
 
 class TestMainLoop:

@@ -116,17 +116,17 @@ class TestResolvePicks:
 
 class TestConfirmReturn:
     def test_no_is_default_and_returns_false(self):
-        proc = MagicMock(returncode=0, stdout="No\n")
+        proc = MagicMock(returncode=0, stdout="no\n")
         with patch("retrieve.pickers.shutil.which", return_value="/usr/bin/fzf"), patch(
             "retrieve.pickers.subprocess.run", return_value=proc
         ) as mock_run:
             assert confirm_return("prompt> ") is False
             sent_input = mock_run.call_args.kwargs["input"]
-            assert sent_input.splitlines()[0] == "No"
+            assert sent_input.splitlines()[0] == "no"
             assert mock_run.call_args[0][0] == ["fzf", "--prompt=prompt> ", "--cycle"]
 
     def test_yes_returns_true(self):
-        proc = MagicMock(returncode=0, stdout="Yes\n")
+        proc = MagicMock(returncode=0, stdout="yes\n")
         with patch("retrieve.pickers.shutil.which", return_value="/usr/bin/fzf"), patch(
             "retrieve.pickers.subprocess.run", return_value=proc
         ):
