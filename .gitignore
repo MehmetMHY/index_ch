@@ -8,3 +8,4 @@ cache/
 *.db*
 *.npz
 .sandbox/
+session-*.md
