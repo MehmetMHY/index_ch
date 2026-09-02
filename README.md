@@ -61,15 +61,33 @@ python3 -m retrieve
 
 Run `retrieve` from the `src/` directory, or set `PYTHONPATH=src`. The convenience entrypoint (`python3 run.py`) handles this automatically.
 
-Or use the convenience entrypoint:
+The easiest way to run the project is through the unified split-view entrypoint:
 
 ```bash
 python3 run.py
 ```
 
-This fzf-picks what to run: `Browse Chats` (launches a one-shot `/ls` fzf browser of chats newest->oldest with a right-side preview), `Smart Search`, `Update Cache` (`build.py` & `process.py`), or `Exit Session`. It uses the `env/` virtual environment if it exists, otherwise falls back to `python3`, and stops on the first failure. If `fzf` isn't installed, it skips the menu and runs the full update & retrieve pipeline. After picking `Update Cache`, it asks (fzf, default No on a bare Enter) whether to return to the main menu afterward, before running the update.
+On launch, it asks whether to update the cache (`update cache? > no / yes`). Pressing Enter (defaulting to `no`) jumps straight into the search and browse prompt.
 
-You can also run each step individually.
+At the `>` prompt:
+
+- Press **ENTER** with an empty prompt to browse all chats newest to oldest.
+- Type a **query** to search your chats by meaning with hybrid search and LLM reranking.
+- Type `/history` or `/hist` to fuzzy-pick and re-run a past query from your session.
+- Type `/help` or `/h` to display the banner and commands.
+- Type `quit`, `exit`, `:q`, or `/q` to exit.
+
+Both search and browse open a unified split-view explorer with a live side-by-side transcript preview and direct keyboard actions:
+
+- **Enter**: open the chat in [Ch](https://github.com/MehmetMHY/ch) (`ch -f <file>`), or merge selected chats chronologically and open them in Ch if multiple are selected.
+- **Ctrl-V**: open the full transcript in `$EDITOR` (falls back to `vim`).
+- **Ctrl-Y**: copy the selected filename(s) to the clipboard.
+- **Ctrl-S**: save the chat JSON (or merged multi-chat dump) to `~/Downloads/`.
+- **Tab**: toggle multi-select for merging or batch operations.
+- **Alt-j** / **Alt-k** (or **Alt-d** / **Alt-u**): scroll / page the preview pane.
+- **Esc** / **Ctrl-C** / **Ctrl-D**: return cleanly to the prompt.
+
+You can also run the underlying pipeline steps individually.
 
 Build and process the database:
 
@@ -78,16 +96,16 @@ python3 src/build.py
 python3 src/process.py
 ```
 
-Then search (from the `src/` directory, or with `PYTHONPATH=src`):
+Or run the traditional interactive search prompt directly:
 
 ```bash
 python3 -m retrieve
 ```
 
-At the `>` prompt:
+At the `retrieve` prompt:
 
-- Type a question to get the top 5 matching chats with short summaries.
-- Type `/view` or `/v` to fuzzy-pick one of the latest results with fzf and open its summary plus full raw transcript in `$EDITOR` (falls back to `vim`). Add a number to skip the picker, e.g. `/v 2`.
+- Type a question to get the top matching chats with short summaries.
+- Type `/view` or `/v` to fuzzy-pick one of the latest results with fzf and open its summary plus full raw transcript in `$EDITOR`. Add a number to skip the picker, e.g. `/v 2`.
 - Type `/copy` or `/c` to fuzzy-pick one of the latest results and copy its chat filename (`ch_session_<epoch>.json`) to the clipboard. Add a number to skip the picker, e.g. `/c 2`.
 - Type `/run` or `/r` to fuzzy-pick one of the latest results and resume it in [Ch](https://github.com/MehmetMHY/ch) (`ch -f <file>`). Add a number to skip the picker, e.g. `/r 2`. Requires `ch` on PATH.
 - Type `/dump` or `/d` to fuzzy-pick (multi-select) one or more of the latest results and merge their messages into a single ch-resumable chat log. Chats are ordered oldest to newest, each chat's messages stay together in order, and every message is tagged with which original file it came from. Pass numbers to skip the picker, e.g. `/dump 1 3 5`. After selecting, a second fzf menu asks what to do with the merged log: `Save to $HOME/Downloads/` saves it to `~/Downloads/index_ch_dump_<chat_count>_<epoch>.json`, `Load into Ch (Temporary)` resumes it in [Ch](https://github.com/MehmetMHY/ch) from a temp file that is deleted when you exit, `Load in Ch & save to Downloads` resumes it and then moves the file to `~/Downloads`, and `Exit/Cancel` does nothing. Unreadable files are skipped with a warning.

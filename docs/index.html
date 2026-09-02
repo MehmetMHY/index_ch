@@ -347,7 +347,7 @@ Type a query or /help
 2. ch_session_1729886400.json · Oct 25, 2025 16:40 UTC · relevance 2/3
    Database migration notes for the new archived flag column.
 3. ch_session_1725432000.json · Sep 04, 2025 12:00 UTC · relevance 1/3
-   React state cleanup; removing stale effect deps.
+   React state cleanup, removing stale effect deps.
 <span class="acc">&gt;</span> </code></pre>
 
     <h2>why</h2>
@@ -360,28 +360,28 @@ Type a query or /help
     <h2>features</h2>
     <ul>
       <li>
-        <strong>semantic search</strong>: find conversations by intent and
+        <strong>semantic search</strong> to find conversations by intent and
         meaning, not just matching words
       </li>
       <li>
-        <strong>hybrid retrieval</strong>: meaning-based search plus keyword
+        <strong>hybrid retrieval</strong> combining meaning with keyword
         matching for better recall
       </li>
       <li>
-        <strong>concise summaries</strong>: each chat becomes a readable preview
-        you can scan quickly
+        <strong>concise summaries</strong> turning each chat into a readable
+        preview you can scan quickly
       </li>
       <li>
-        <strong>local cache</strong>: your index and generated metadata are
-        stored on your machine
+        <strong>local cache</strong> keeping your index and generated metadata
+        on your machine
       </li>
       <li>
-        <strong>chat browser</strong>: browse recent sessions and jump back in
+        <strong>chat browser</strong> to browse recent sessions and jump back in
         when needed
       </li>
       <li>
-        <strong>terminal native</strong>: a CLI with a fuzzy-picking TUI, built
-        for keyboard-driven use
+        <strong>terminal native</strong> a split-view TUI with side-by-side
+        previews, built for keyboard use
       </li>
     </ul>
 
@@ -449,9 +449,8 @@ Type a query or /help
       Give your Ch history a memory. Set it up, run
       <code>python3 src/build.py</code> to index your chats,
       <code>python3 src/process.py</code> to summarize and embed them, then
-      <code>python3 -m retrieve</code> to search. Or use
-      <code>python3 run.py</code> to pick a mode interactively. Your past
-      answers are closer than you think.
+      <code>python3 run.py</code> to browse and search. Your past answers are
+      closer than you think.
     </p>
 
     <footer></footer>
@@ -589,7 +588,7 @@ Type a query or /help
             "3. ch_session_1725432000.json · Sep 04, 2025 12:00 UTC · relevance ",
           );
           await print("1/3\n", "acc");
-          await print("   React state cleanup; removing stale effect deps.\n");
+          await print("   React state cleanup, removing stale effect deps.\n");
           await sleep(450);
 
           // drop back to the prompt, cursor waits for the next query

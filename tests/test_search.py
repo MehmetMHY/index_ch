@@ -448,6 +448,59 @@ class TestSearch:
                     results, _ = search(sample_session, "test")
                     assert results == []
 
+    def test_large_top_k_caps_rerank_pool(self):
+        """When result_len is large (e.g. 9999), rerank candidates are capped at 25
+        so hundreds of documents aren't sent to the LLM at once. The rest are returned
+        in hybrid order."""
+        fused_ids = list(range(1, 51))
+        meta = {
+            i: {
+                "file_path": f"/tmp/ch_session_{i}.json",
+                "summary": f"summary {i}",
+                "last_message_epoch": i,
+                "archived": False,
+            }
+            for i in fused_ids
+        }
+        session = Session(
+            conn=MagicMock(),
+            ids=np.array(fused_ids),
+            mat=np.eye(50, dtype=np.float32),
+            meta=meta,
+            do_rerank=True,
+            do_expand=False,
+            show_archived=False,
+            result_len=9999,
+        )
+
+        mock_resp = MagicMock()
+        d = MagicMock(index=0, embedding=[1.0] * 50)
+        mock_resp.data = [d]
+        mock_resp.usage.prompt_tokens = 5
+
+        with patch.object(search_mod, "client") as mock_client, patch.object(
+            search_mod, "fts_search", return_value=[]
+        ), patch.object(
+            search_mod, "vector_search", return_value=fused_ids
+        ), patch.object(
+            search_mod, "rerank"
+        ) as mock_rerank:
+            mock_client.embeddings.create.return_value = mock_resp
+            mock_rerank.return_value = ([(cid, 3) for cid in fused_ids[:25]], 10, 10)
+            results, usage = search(session, "test")
+
+            # Check that rerank was called with at most 25 candidates
+            called_candidate_ids = mock_rerank.call_args[0][1]
+            assert len(called_candidate_ids) == 25
+
+            # Total results returned should still include all 50
+            assert len(results) == 50
+            # First 25 are graded, last 25 are ungraded
+            for cid, grade in results[:25]:
+                assert grade == 3
+            for cid, grade in results[25:]:
+                assert grade is None
+
     def test_usage_dict_keys(self, sample_session):
         sample_session.do_rerank = False
         sample_session.do_expand = False

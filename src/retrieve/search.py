@@ -255,10 +255,13 @@ def search(session: Session, query: str):
 
     rerank_in = rerank_out = 0
     if do_rerank and fused:
-        # rerank at least as many candidates as the caller wants back, so a
-        # /len above the default RERANK_POOL still returns graded results
-        rerank_n = max(RERANK_POOL, top_k)
+        # Rerank the top candidates with the LLM. Cap at RERANK_POOL (or min(top_k, 25) for CLI /len),
+        # so large result limits (e.g. browsing all candidates in fzf) do not send hundreds of
+        # documents to Groq in a single listwise prompt.
+        rerank_n = min(len(fused), max(RERANK_POOL, min(top_k, 25)))
         ranked, rerank_in, rerank_out = rerank(query, fused[:rerank_n], session.meta)
+        if len(fused) > rerank_n:
+            ranked.extend((cid, None) for cid in fused[rerank_n:])
     else:
         ranked = [(cid, None) for cid in fused]
 

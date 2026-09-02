@@ -13,7 +13,7 @@ search with LLM reranking.
 ## Architecture
 
 All Python modules live in `src/` (`build.py`, `process.py`, `config.py`,
-`pricing.py`, `input_time.py`, `preview.py`, and the `retrieve/` package); only `run.py` sits
+`pricing.py`, `input_time.py`, `preview.py`, `explorer_preview.py`, and the `retrieve/` package); only `run.py` sits
 at the repo root, as the entrypoint. The flat modules (`build.py`, `process.py`,
 etc.) import each other by bare name (`from config import ...`,
 `from build import ...`), which works because they are run as scripts (Python
@@ -204,6 +204,14 @@ chat, not a global chat count. It has a standalone CLI (`python3
 src/preview.py <id>`) used as the fzf fallback when a cached preview file does
 not exist yet.
 
+`explorer_preview.py` is the lightweight fzf preview helper for the unified
+explorer in `run.py`. Like `preview.py`, it imports only stdlib and `config`
+(for `DB_PATH`), never `retrieve` or heavy dependencies. It formats the chat
+with the top action legend, metadata lines (title, date, model, turn count,
+filename, status), summary, and turn-by-turn user/assistant conversation
+blocks with syntax highlighting markers and code clipping. It has a standalone
+CLI (`python3 src/explorer_preview.py <id>`) used as the fzf preview fallback.
+
 `pricing.py` fetches model prices from `https://models.dev/api.json` and caches
 the flattened catalog at `~/.ch/index/pricing_cache.json` (atomic write: write
 `.tmp`, rename, `indent=4`). The cache stores `fetched_at` as both an epoch int
@@ -228,31 +236,52 @@ cache is predictable and not coupled to whether the run actually reaches
 `estimate_cost` - without it, a no-op `process.py` (nothing to process) would
 skip `print_summary` and never refresh the cache.
 
-`run.py` (at the repo root) is a convenience wrapper around the `src/` scripts.
-It preflights `~/.ch/` and `~/.ch/tmp/` (matching `config.py`'s guard) before
-showing the menu, exiting non-zero with the Ch install URL if either is missing.
-`pick_action` fzf-picks one of `Browse Chats` (`retrieve ls`, a one-shot
-`/ls` startup mode that exits after the fzf list instead of loading search
-vectors or warming API connections), `Smart Search` (`retrieve` only),
-`Update Cache` (`build.py` + `process.py`), or `Exit Session` (does nothing);
-cancelling the picker (Esc/Ctrl-C) also does nothing. Before spawning each
-script it prints a one-line status (`Scanning Ch exports...`,
-`Processing pending chats...`, `Opening smart search...`, or
-`Opening chat browser...` for `ls`) so the launcher never sits silent while a
-child process imports. `Update Cache` asks `confirm_return_to_menu` (fzf
-`return to menu? >`, default `No` on a bare Enter so the flow exits after
-the update finishes instead of looping back to the main menu)
-_before_ the long-running build+process, so the flow is hands-off once
-decided; `Yes` returns to the main menu after it finishes, anything else
-exits. The other actions exit after one run.
-There is no flag-based bypass - unlike `retrieve`'s pickers, which degrade
-to "pass a number" when `fzf` is missing, `run.py` has no non-interactive
-alternative to fall back to, so it degrades by running the full pipeline
-(build + process + retrieve) instead, with a printed note - this keeps headless
-callers (e.g. cron) working the way bare `python3 run.py` always did, before
-this picker existed. It uses `env/bin/python3` when a virtual environment
-exists (`env/` stays at the root), otherwise falls back to `python3`, and
-exits non-zero on the first script failure.
+`run.py` (at the repo root) is the unified entrypoint uniting search and browse
+in a single split-view experience. It preflights `~/.ch/` and `~/.ch/tmp/`
+(matching `config.py`'s guard), exiting non-zero with the Ch install URL if
+either is missing. On launch it prompts `update cache? > no / yes` (fzf,
+defaulting to `no` on a bare Enter to skip the long-running build+process). If
+`yes`, it runs `build.py` and `process.py` in sequence before entering the
+REPL. The banner displays `Type to search or ENTER to browse` and
+`/history, /help, or /exit`.
+
+The REPL loop in `run.py`:
+
+- Empty Enter browses all chats newest to oldest (`browse> ` prompt) in the
+  unified fzf split-view explorer.
+- A typed query runs hybrid vector + keyword search with LLM reranking against
+  the embedded chats and opens the split-view explorer in results mode
+  (`results> ` prompt) with all matches.
+- `/history` (or `/hist`) opens an fzf picker of past search queries from the
+  session to re-run.
+- `/help` (or `/h`) reprints the banner.
+- `/exit`, `/quit`, `:q`, `quit`, `exit` exit the program.
+
+The unified fzf split-view explorer:
+
+- Left pane displays ranked or recency-sorted chats as
+  `0001  MM/DD/YYYY HH:MMZ  ch_session_<epoch>.json`.
+- Right pane displays pre-rendered previews via `explorer_preview.py` with the
+  action legend at the top, followed by title, metadata, summary, and
+  conversation transcript. Previews are precomputed in parallel
+  (`multiprocessing.Pool`) for the top `PREVIEW_BATCH` (500) chats and filled
+  sequentially by a background daemon thread while fzf is open.
+- Direct keybindings:
+  - `Enter`: open chat in Ch (single chat via `ch -f <file>`, or merged
+    multi-chat session via a temporary dump file in `~/.ch/index/tmp/`). Asks
+    `return to search? > no / yes` before launch (default `no` exits cleanly on
+    ch return; `yes` returns to the REPL).
+  - `Ctrl-V`: view the full transcript in `$EDITOR` (`vim` fallback).
+  - `Ctrl-Y`: copy selected filename(s) to system clipboard.
+  - `Ctrl-S`: save chat JSON or merged multi-chat dump to `~/Downloads/`.
+  - `Tab`: toggle multi-select.
+  - `Alt-J` / `Alt-K`, `Alt-D` / `Alt-U`: scroll / page the preview pane.
+  - `Esc` / `Ctrl-C` / `Ctrl-D`: return cleanly to the REPL prompt.
+- Rerank pool capping: when searching, `search()` returns all matching candidates
+  (up to 9999), but caps the expensive LLM reranking pool at a maximum of 25
+  candidates (`min(len(fused), max(RERANK_POOL, min(top_k, 25)))`), appending the
+  remaining candidates in their hybrid RRF order. This avoids blowing LLM context
+  and token limits when displaying full result sets.
 
 `docs/` is the static project website (`index.html` and `assets/`), unrelated
 to the Python pipeline. It is served by `docs/run.py`, a zero-dependency
