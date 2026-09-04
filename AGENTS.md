@@ -13,7 +13,7 @@ search with LLM reranking.
 ## Architecture
 
 All Python modules live in `src/` (`build.py`, `process.py`, `config.py`,
-`pricing.py`, `input_time.py`, `preview.py`, `explorer_preview.py`, and the `retrieve/` package); only `run.py` sits
+`pricing.py`, `input_time.py`, `preview.py`, `explorer_preview.py`, and the `retrieve/` package); only `main.py` sits
 at the repo root, as the entrypoint. The flat modules (`build.py`, `process.py`,
 etc.) import each other by bare name (`from config import ...`,
 `from build import ...`), which works because they are run as scripts (Python
@@ -205,7 +205,7 @@ src/preview.py <id>`) used as the fzf fallback when a cached preview file does
 not exist yet.
 
 `explorer_preview.py` is the lightweight fzf preview helper for the unified
-explorer in `run.py`. Like `preview.py`, it imports only stdlib and `config`
+explorer in `main.py`. Like `preview.py`, it imports only stdlib and `config`
 (for `DB_PATH`), never `retrieve` or heavy dependencies. It formats the chat
 with the top action legend, metadata lines (title, date, model, turn count,
 filename, status), summary, and turn-by-turn user/assistant conversation
@@ -236,7 +236,7 @@ cache is predictable and not coupled to whether the run actually reaches
 `estimate_cost` - without it, a no-op `process.py` (nothing to process) would
 skip `print_summary` and never refresh the cache.
 
-`run.py` (at the repo root) is the unified entrypoint uniting search and browse
+`main.py` (at the repo root) is the unified entrypoint uniting search and browse
 in a single split-view experience. It preflights `~/.ch/` and `~/.ch/tmp/`
 (matching `config.py`'s guard), exiting non-zero with the Ch install URL if
 either is missing. On launch it prompts `update cache? > no / yes` (fzf,
@@ -245,7 +245,7 @@ defaulting to `no` on a bare Enter to skip the long-running build+process). If
 REPL. The banner displays `Type to search or ENTER to browse` and
 `/history, /help, or /exit`.
 
-The REPL loop in `run.py`:
+The REPL loop in `main.py`:
 
 - Empty Enter browses all chats newest to oldest (`browse> ` prompt) in the
   unified fzf split-view explorer.
@@ -288,7 +288,7 @@ to the Python pipeline. It is served by `docs/run.py`, a zero-dependency
 `http.server`-based dev server that localizes a canonical `<link rel=canonical>`
 origin so the page renders correctly offline, binds to `127.0.0.1` on the
 first free port in `8000`-`8099`, opens the browser, and stops on `Ctrl+C` /
-`Ctrl+D` / SIGTERM / SIGHUP. Do not confuse it with the root `run.py` (the CLI
+`Ctrl+D` / SIGTERM / SIGHUP. Do not confuse it with the root `main.py` (the CLI
 entrypoint). The website text is intentionally high-level (no model names, no
 schema details, no command flags); the root `README.md` and this file remain
 the source of truth for the CLI. `index.html` includes an animated demo
@@ -354,7 +354,7 @@ rerank and expansion fail and degrade gracefully (hybrid order / original query
 only) rather than erroring, but retrieval quality drops, so treat it as
 required.
 
-Or use the fzf-driven entrypoint, `python3 run.py` (see the `run.py` section
+Or use the fzf-driven entrypoint, `python3 main.py` (see the `main.py` section
 above).
 
 Useful env vars for `process.py`:
@@ -444,7 +444,7 @@ unprompted.
 - Resumed chats stay current via the `content_hash` diff in `build.py`: when a
   session gains messages after ingest, its file hash changes, so the next
   `build.py` re-ingests it (`update_entries`) and clears summary/embedding so
-  `process.py` re-embeds it. So `run.py` self-heals drift, but only on the next
+  `process.py` re-embeds it. So `main.py` self-heals drift, but only on the next
   build (the DB is a snapshot as of the last run, not live). `backfill_content_hashes`
   blessed the existing rows with their current on-disk hash (one-time, no
   re-processing), so chats that had already drifted before this feature are not

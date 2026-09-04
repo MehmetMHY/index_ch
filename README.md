@@ -33,11 +33,11 @@ The project is three scripts, run in order:
 
 3. `retrieve` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps run on Groq for speed (`openai/gpt-oss-20b` for expansion, `openai/gpt-oss-120b` for reranking), while embeddings stay on OpenAI.
 
-The Python scripts live in `src/`, with `run.py` at the repo root as a convenience entrypoint. `retrieve` is a package (`src/retrieve/`) run via `python3 -m retrieve` with `src/` on the path. The database and a small embeddings cache are stored in `~/.ch/index/`, next to Ch's own local data.
+The Python scripts live in `src/`, with `main.py` at the repo root as a convenience entrypoint. `retrieve` is a package (`src/retrieve/`) run via `python3 -m retrieve` with `src/` on the path. The database and a small embeddings cache are stored in `~/.ch/index/`, next to Ch's own local data.
 
 ## Setup
 
-Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by the `run.py` split-view explorer and `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run`, `/ls`, and the explorer to resume a session). Model pricing for the cost estimates the scripts print is fetched from the [models.dev](https://models.dev/) API and cached locally for a few days; models.dev is an open-source model catalog maintained by the [Opencode](https://opencode.ai/) CLI team.
+Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by the `main.py` split-view explorer and `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run`, `/ls`, and the explorer to resume a session). Model pricing for the cost estimates the scripts print is fetched from the [models.dev](https://models.dev/) API and cached locally for a few days; models.dev is an open-source model catalog maintained by the [Opencode](https://opencode.ai/) CLI team.
 
 Create a virtual environment and install dependencies:
 
@@ -59,12 +59,12 @@ python3 src/process.py
 python3 -m retrieve
 ```
 
-Run `retrieve` from the `src/` directory, or set `PYTHONPATH=src`. The convenience entrypoint (`python3 run.py`) handles this automatically.
+Run `retrieve` from the `src/` directory, or set `PYTHONPATH=src`. The convenience entrypoint (`python3 main.py`) handles this automatically.
 
 The easiest way to run the project is through the unified split-view entrypoint:
 
 ```bash
-python3 run.py
+python3 main.py
 ```
 
 On launch, it asks whether to update the cache (`update cache? > no / yes`). Pressing Enter (defaulting to `no`) jumps straight into the search and browse prompt.
@@ -129,12 +129,12 @@ Run it locally with the included dev server (opens your browser, `Ctrl-C` to sto
 python3 docs/run.py
 ```
 
-`docs/run.py` is a standalone HTTP server (no dependencies) that serves `docs/index.html` and its `docs/assets/`. It is unrelated to the root `run.py`, which is the project's CLI entrypoint.
+`docs/run.py` is a standalone HTTP server (no dependencies) that serves `docs/index.html` and its `docs/assets/`. It is unrelated to the root `main.py`, which is the project's CLI entrypoint.
 
 ## Notes
 
 - The path to the Ch chats (`~/.ch/tmp/`) is fixed and never modified.
-- `run.py` and the `src/` scripts require both `~/.ch/` and `~/.ch/tmp/` to already exist. Run Ch first if either directory is missing.
+- `main.py` and the `src/` scripts require both `~/.ch/` and `~/.ch/tmp/` to already exist. Run Ch first if either directory is missing.
 - Each result shows a UTC timestamp (e.g. `Jul 27, 2025 09:45 UTC`) taken from the chat's last message, so resumed sessions sort and filter by when they were actually last used. It falls back to the epoch in the filename (`ch_session_<epoch>.json`) for chats with no messages.
 - `process.py` runs many requests in parallel. Set the worker count with `WORKERS=128 python3 src/process.py`.
 - If a chat fails to process, the error is recorded in the database and skipped on later runs. Retry those with `RETRY_ERRORS=1 python3 src/process.py`.
