@@ -34,16 +34,13 @@ Three scripts, run in order, plus a shared config:
   tunables. Change models here, nowhere else. Pricing is no longer hardcoded
   here: `pricing.py` fetches it from the [models.dev](https://models.dev/)
   catalog (an open-source model catalog maintained by the
-  [Opencode](https://opencode.ai/) CLI team) and caches it locally. Two
-  providers: OpenAI for embeddings and `process.py` (summaries), Groq for
-  `retrieve`'s rerank and query expansion (reached via its OpenAI-compatible
-  endpoint, `GROQ_BASE_URL`). Embeddings must stay on OpenAI: the stored vectors are
+  [Opencode](https://opencode.ai/) CLI team) and caches it locally. OpenAI is
+  used for embeddings, `process.py` summaries, and `retrieve`'s rerank and query
+  expansion. Embeddings must stay on OpenAI: the stored vectors are
   `text-embedding-3-small`, and the query has to embed in the same space, so
-  the embedding model/provider cannot change without a full re-embed. Groq has
-  no embedding model anyway. Any replacement rerank/expansion model must support
-  `json_schema` structured outputs (`chat.completions.parse`): Groq's
-  `qwen/qwen3.6-27b` was evaluated and rejected because it 400s on `json_schema`,
-  and as a reasoning model it burned ~5x the output tokens at ~13x the cost.
+  the embedding model/provider cannot change without a full re-embed. Retrieval
+  LLM calls use `gpt-5.6-luna` with high reasoning and must keep supporting
+  `json_schema` structured outputs (`chat.completions.parse`).
 - `build.py` reads chat JSON from `~/.ch/tmp/`, strips auto-generated noise
   (code dumps, file pastes, command output), and stores cleaned text in the
   database. Incremental via a per-file `content_hash` (SHA-256 of the bytes):
@@ -65,15 +62,15 @@ Three scripts, run in order, plus a shared config:
   what is already paid for. `save` only writes the embedding when that run
   computed one, so a short-summary-only pass cannot clobber existing vectors.
 - `retrieve` is an interactive prompt. Per query it optionally expands the
-  query into a few variants (Groq `openai/gpt-oss-20b`, structured output),
+  query into a few variants (OpenAI `gpt-5.6-luna`, structured output),
   embeds the original plus variants in one batched call (OpenAI
   `text-embedding-3-small`), runs vector search and FTS5 keyword search per
   query, fuses every ranking with Reciprocal Rank Fusion, reranks the top
-  candidates with Groq `openai/gpt-oss-120b` (listwise, structured outputs)
+  candidates with OpenAI `gpt-5.6-luna` (listwise, structured outputs)
   against the ORIGINAL query, and prints the top 5, each with a UTC timestamp
   from the chat's last message (`chat_epoch`). Within an equal rerank grade,
   results are ordered most-recent-first (recency tiebreak). On startup a daemon
-  thread (`warm_connections`) opens the OpenAI + Groq HTTPS connections so the
+  thread (`warm_connections`) opens the OpenAI HTTPS connections so the
   first query does not pay cold-start latency. `:fast` toggles the
   reranker, `:expand` toggles query expansion, and `:archived` toggles whether
   chats whose source file is gone from `~/.ch/tmp/` (flagged `archived = 1` by
@@ -165,7 +162,7 @@ The `retrieve` package is split into focused modules under `src/retrieve/`:
 `spinner.py` (stdlib-only animated spinner), `state.py` (`Session` dataclass
 holding the REPL's shared state, passed to every handler), `models.py`
 (pydantic schemas for rerank/expansion), `cache.py` (FTS5 index + embeddings
-cache), `search.py` (OpenAI/Groq clients, vector search, RRF fusion, rerank,
+cache), `search.py` (OpenAI client, vector search, RRF fusion, rerank,
 query expansion, the top-level `search()` function), `display.py` (formatting,
 timestamps, blurbs, help text), `actions.py` (`/view`, `/copy`, `/run` action
 helpers), `pickers.py` (fzf pickers and arg resolution), `cli.py` (the REPL
@@ -218,9 +215,8 @@ the flattened catalog at `~/.ch/index/pricing_cache.json` (atomic write: write
 and an ISO 8601 UTC string. `PRICING_TTL` (6 days, in `config.py`) is a soft
 upper bound: a lookup also triggers a refresh when the cache is missing, the
 model is absent from the cache, or its entry is malformed, regardless of age.
-The provider for each model is declared in `config.MODEL_PROVIDER` (OpenAI
-serves bare ids, Groq serves the `openai/gpt-oss-*` ids) because model ids are
-not unique across providers in the catalog. `_fetch_catalog` retries twice (2s
+The provider for each model is declared in `config.MODEL_PROVIDER` because model
+ids are not unique across providers in the catalog. `_fetch_catalog` retries twice (2s
 and 5s delays) with a 20s per-request timeout and prints a one-line warning on
 final failure; it never raises. On refresh failure `get_price` falls back to
 the stale cache if it has the model, otherwise returns `None`. `estimate_cost`
@@ -332,7 +328,7 @@ image. `diagrams.html` itself was removed once the PNGs replaced it.
 
 ## Setup and commands
 
-API keys needed: [OpenAI](https://openai.com/api/) (`OPENAI_API_KEY`) and [Groq](https://console.groq.com/docs/quickstart) (`GROQ_API_KEY`).
+API key needed: [OpenAI](https://openai.com/api/) (`OPENAI_API_KEY`).
 `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, and `/time` pickers need
 `fzf` on PATH (not a pip package; install separately, e.g. `brew install fzf`).
 All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
@@ -341,18 +337,16 @@ All fzf calls pass `--cycle` so the list wraps top-to-bottom and back.
 python3 -m venv env
 source env/bin/activate
 pip install -r requirements.txt   # httpx, numpy, openai, pydantic, pytest, pytest-mock
-export OPENAI_API_KEY="..."        # embeddings (process.py + retrieve)
-export GROQ_API_KEY="..."          # retrieve rerank + query expansion
+export OPENAI_API_KEY="..."        # embeddings, process.py, and retrieve
 python3 src/build.py               # ingest new chats
 python3 src/process.py             # summarize + embed (calls OpenAI, costs money)
 python3 -m retrieve            # interactive search (from src/ or PYTHONPATH=src)
 ```
 
-`retrieve` reaches Groq with the same `openai` SDK, just a second client
-pointed at `GROQ_BASE_URL` (see `groq_client`). If `GROQ_API_KEY` is unset,
-rerank and expansion fail and degrade gracefully (hybrid order / original query
-only) rather than erroring, but retrieval quality drops, so treat it as
-required.
+`retrieve` uses the same OpenAI client for embeddings, rerank, and query
+expansion. If `OPENAI_API_KEY` is unset, API calls fail and the LLM retrieval
+steps degrade where possible (hybrid order / original query only), but semantic
+search still requires embeddings, so treat the key as required.
 
 Or use the fzf-driven entrypoint, `python3 main.py` (see the `main.py` section
 above).
@@ -366,10 +360,10 @@ Useful env vars for `process.py`:
 There is a local unit test suite under `tests/` (run with `python3 -m pytest`).
 Always run the unit tests after making changes to verify everything stays
 backwards-compatible and regression-free. The tests make no API calls: all
-OpenAI/Groq client interactions are mocked via `unittest.mock.patch`, DB tests
+OpenAI client interactions are mocked via `unittest.mock.patch`, DB tests
 use in-memory `sqlite3` (`:memory:`), and filesystem tests use pytest's `tmp_path`.
 A `conftest.py` at module level sets `HOME` to a temp dir (creating `~/.ch/tmp/`
-inside it) and sets a dummy `GROQ_API_KEY` so `config.py` and `search.py` import
+inside it) and sets a dummy `OPENAI_API_KEY` so `config.py` and `search.py` import
 cleanly without the real Ch install or API keys. Shared fixtures (`db_conn`,
 `db_with_chats`, `sample_meta`, `sample_ids`, `sample_mat`, `sample_session`)
 provide deterministic test data. The suite covers pure functions (truncation,
@@ -385,10 +379,9 @@ corrupt data, also test on a copy of the database, not the real one.
 
 ## Cost awareness
 
-`process.py` makes paid OpenAI calls; `retrieve` makes a paid OpenAI
-embedding call plus paid Groq rerank/expansion calls. A full `process.py`
-backfill of ~5600 chats costs roughly $6-7; each `retrieve` query costs a
-fraction of a cent (a few tenths, mostly the Groq rerank). Do not trigger a full
+`process.py` makes paid OpenAI calls; `retrieve` makes paid OpenAI embedding,
+rerank, and expansion calls. A full `process.py` backfill of ~5600 chats costs
+roughly $6-7; each `retrieve` query costs a fraction of a cent. Do not trigger a full
 re-process or bulk API calls without a clear reason. When testing API-touching
 code, prefer a single call or a small sample, and do not run the full pipeline
 unprompted.

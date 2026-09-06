@@ -420,9 +420,9 @@ Type a query or /help
     <p>
       Speed is a priority with retrieve. The embeddings matrix is cached to disk
       so later launches load in under a second, and API connections are warmed
-      in the background at startup. As of August 2026, rerank and query
-      expansion run on Groq-hosted models for faster inference, while embeddings
-      stay on OpenAI to preserve the stored vector space.
+      in the background at startup. Rerank, query expansion, and embeddings run
+      on OpenAI, with embeddings kept on the same model to preserve the stored
+      vector space.
     </p>
 
     <h2>use cases</h2>

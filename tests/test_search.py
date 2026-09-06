@@ -216,8 +216,8 @@ class TestRerank:
         )
         mock_resp.usage.prompt_tokens = 10
         mock_resp.usage.completion_tokens = 5
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             ranked, in_tok, out_tok = rerank("query", candidate_ids, meta)
             ids_ranked = [r[0] for r in ranked]
             assert 99999 not in ids_ranked
@@ -237,8 +237,8 @@ class TestRerank:
         )
         mock_resp.usage.prompt_tokens = 10
         mock_resp.usage.completion_tokens = 5
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             ranked, in_tok, out_tok = rerank("query", candidate_ids, meta)
             ids_ranked = [r[0] for r in ranked]
             assert "abc" not in [str(x) for x in ids_ranked]
@@ -258,8 +258,8 @@ class TestRerank:
         )
         mock_resp.usage.prompt_tokens = 10
         mock_resp.usage.completion_tokens = 5
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             ranked, _, _ = rerank("query", candidate_ids, meta)
             ids_ranked = [r[0] for r in ranked]
             assert ids_ranked.count(1) == 1
@@ -278,8 +278,8 @@ class TestRerank:
         )
         mock_resp.usage.prompt_tokens = 10
         mock_resp.usage.completion_tokens = 5
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             ranked, _, _ = rerank("query", candidate_ids, meta)
             ids_ranked = [r[0] for r in ranked]
             # 3 and 1 from model, then 2 and 4 in original order, all with None grade
@@ -290,8 +290,8 @@ class TestRerank:
     def test_exception_fallback_preserves_order(self):
         candidate_ids = [5, 3, 1]
         meta = {i: {"summary": f"s{i}"} for i in candidate_ids}
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.side_effect = Exception("API down")
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.side_effect = Exception("API down")
             ranked, in_tok, out_tok = rerank("query", candidate_ids, meta)
             assert [r[0] for r in ranked] == candidate_ids
             assert all(r[1] is None for r in ranked)
@@ -310,8 +310,8 @@ class TestRerank:
         )
         mock_resp.usage.prompt_tokens = 5
         mock_resp.usage.completion_tokens = 3
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             ranked, _, _ = rerank("query", candidate_ids, meta)
             ids_ranked = [r[0] for r in ranked]
             assert ids_ranked[0] == 2
@@ -326,8 +326,8 @@ class TestExpandQuery:
         assert out_tok == 0
 
     def test_exception_returns_empty(self):
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.side_effect = Exception("fail")
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.side_effect = Exception("fail")
             result, in_tok, out_tok = expand_query("test", n=3)
             assert result == []
             assert in_tok == 0
@@ -341,8 +341,8 @@ class TestExpandQuery:
         )
         mock_resp.usage.prompt_tokens = 5
         mock_resp.usage.completion_tokens = 3
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             result, _, _ = expand_query("test", n=5)
             # "Test", "TEST", "test" all dedup against original "test"
             assert len(result) == 1
@@ -356,8 +356,8 @@ class TestExpandQuery:
         )
         mock_resp.usage.prompt_tokens = 5
         mock_resp.usage.completion_tokens = 3
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             result, _, _ = expand_query("original", n=5)
             assert "valid query" in result
             assert "" not in result
@@ -369,8 +369,8 @@ class TestExpandQuery:
         mock_resp.choices[0].message.parsed = ExpandedQueries(queries=queries)
         mock_resp.usage.prompt_tokens = 5
         mock_resp.usage.completion_tokens = 3
-        with patch.object(search_mod, "groq_client") as mock_groq:
-            mock_groq.chat.completions.parse.return_value = mock_resp
+        with patch.object(search_mod, "client") as mock_client:
+            mock_client.chat.completions.parse.return_value = mock_resp
             result, _, _ = expand_query("original", n=3)
             assert len(result) == 3
 

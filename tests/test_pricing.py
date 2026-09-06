@@ -22,19 +22,15 @@ from config import (
 # --- helpers / fixtures -----------------------------------------------------
 
 
-def make_catalog(openai_in=0.20, openai_out=1.25, groq_in=0.15, groq_out=0.60):
+def make_catalog(openai_in=0.20, openai_out=1.25, llm_in=0.15, llm_out=0.60):
     """A minimal catalog with the four project models and their providers."""
     return {
         "openai": {
             "models": {
                 SUMMARY_MODEL: {"cost": {"input": openai_in, "output": openai_out}},
                 EMBEDDING_MODEL: {"cost": {"input": 0.02, "output": 0}},
-            }
-        },
-        "groq": {
-            "models": {
-                RERANK_MODEL: {"cost": {"input": groq_in, "output": groq_out}},
-                QUERY_EXPANSION_MODEL: {"cost": {"input": 0.075, "output": 0.30}},
+                RERANK_MODEL: {"cost": {"input": llm_in, "output": llm_out}},
+                QUERY_EXPANSION_MODEL: {"cost": {"input": llm_in, "output": llm_out}},
             }
         },
     }
@@ -100,13 +96,13 @@ class TestEstimateCost:
 
     def test_unknown_provider_returns_none(self, monkeypatch):
         # model declared in MODEL_PROVIDER but provider key absent from catalog
-        _seed_cache(monkeypatch, {"openai": {"models": {}}, "groq": {"models": {}}})
+        _seed_cache(monkeypatch, {"openai": {"models": {}}})
         pricing._state["loaded"] = True
         pricing._state["cache"] = pricing._load_cache_file()
         monkeypatch.setattr(
             pricing,
             "_fetch_catalog",
-            lambda: {"openai": {"models": {}}, "groq": {"models": {}}},
+            lambda: {"openai": {"models": {}}},
         )
         assert pricing.estimate_cost(SUMMARY_MODEL) is None
 
@@ -141,15 +137,14 @@ class TestRefreshTriggers:
         assert pricing.get_price(SUMMARY_MODEL) == (0.20, 1.25)
 
     def test_missing_model_triggers_refresh(self, monkeypatch):
-        # cache has only the openai models, not the groq ones
+        # cache has only process/embedding models, not the retrieval LLM
         partial = {
             "openai": {
                 "models": {
                     SUMMARY_MODEL: {"cost": {"input": 0.20, "output": 1.25}},
                     EMBEDDING_MODEL: {"cost": {"input": 0.02, "output": 0}},
                 }
-            },
-            "groq": {"models": {}},
+            }
         }
         _seed_cache(monkeypatch, partial, age=0)  # fresh, but model missing
         monkeypatch.setattr(pricing, "_fetch_catalog", lambda: make_catalog())
@@ -194,7 +189,7 @@ class TestRefreshFailure:
     def test_model_not_in_fresh_catalog_returns_none(self, monkeypatch):
         _seed_cache(monkeypatch, make_catalog(), age=pricing.config.PRICING_TTL + 3600)
         # fresh catalog lacks our model entirely
-        empty = {"openai": {"models": {}}, "groq": {"models": {}}}
+        empty = {"openai": {"models": {}}}
         monkeypatch.setattr(pricing, "_fetch_catalog", lambda: empty)
         assert pricing.get_price(SUMMARY_MODEL) is None
 
@@ -234,9 +229,8 @@ class TestWarm:
                     EMBEDDING_MODEL: {"cost": {"input": 0.02, "output": 0}},
                 }
             },
-            "groq": {"models": {}},
         }
-        _seed_cache(monkeypatch, partial, age=0)  # fresh, but groq models missing
+        _seed_cache(monkeypatch, partial, age=0)  # fresh, but retrieval model missing
         monkeypatch.setattr(pricing, "_fetch_catalog", lambda: make_catalog())
         pricing.warm()
         assert pricing.get_price(RERANK_MODEL) == (0.15, 0.60)
@@ -272,7 +266,6 @@ class TestMalformedEntries:
             "openai": {
                 "models": {SUMMARY_MODEL: {"cost": {"input": "free", "output": 1.0}}}
             },
-            "groq": {"models": {}},
         }
         _seed_cache(monkeypatch, bad, age=0)
         monkeypatch.setattr(pricing, "_fetch_catalog", lambda: bad)
@@ -281,7 +274,6 @@ class TestMalformedEntries:
     def test_missing_cost_key_returns_none(self, monkeypatch):
         bad = {
             "openai": {"models": {SUMMARY_MODEL: {}}},
-            "groq": {"models": {}},
         }
         _seed_cache(monkeypatch, bad, age=0)
         monkeypatch.setattr(pricing, "_fetch_catalog", lambda: bad)
@@ -309,7 +301,7 @@ class TestCacheFile:
             "input": 0.20,
             "output": 1.25,
         }
-        assert loaded["providers"]["groq"][RERANK_MODEL] == {
+        assert loaded["providers"]["openai"][RERANK_MODEL] == {
             "input": 0.15,
             "output": 0.60,
         }

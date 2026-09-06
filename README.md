@@ -31,13 +31,13 @@ The project is three scripts, run in order:
 
 2. `process.py` summarizes each chat with `gpt-5.4-nano`, condenses that summary into a 1-2 sentence blurb (also `gpt-5.4-nano`) for the search results, and embeds the summary with `text-embedding-3-small`, saving all three back to the database. Each step is skipped when its column is already filled, so it is resumable and re-running never redoes work you already paid for.
 
-3. `retrieve` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps run on Groq for speed (`openai/gpt-oss-20b` for expansion, `openai/gpt-oss-120b` for reranking), while embeddings stay on OpenAI.
+3. `retrieve` is an interactive search prompt. It rewrites your query into a few alternative phrasings (query expansion, to widen recall), embeds the original plus the variants in a single batched call with `text-embedding-3-small`, runs vector search and full-text keyword search on each, fuses all the results, reranks the top candidates, and shows the top 5 matches, each with a UTC timestamp from the chat's last message. The two LLM steps run on OpenAI (`gpt-5.6-luna` with high reasoning), and embeddings stay on OpenAI.
 
 The Python scripts live in `src/`, with `main.py` at the repo root as a convenience entrypoint. `retrieve` is a package (`src/retrieve/`) run via `python3 -m retrieve` with `src/` on the path. The database and a small embeddings cache are stored in `~/.ch/index/`, next to Ch's own local data.
 
 ## Setup
 
-Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings and `process.py`), a [Groq API key](https://console.groq.com/docs/quickstart) (`retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by the `main.py` split-view explorer and `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run`, `/ls`, and the explorer to resume a session). Model pricing for the cost estimates the scripts print is fetched from the [models.dev](https://models.dev/) API and cached locally for a few days; models.dev is an open-source model catalog maintained by the [Opencode](https://opencode.ai/) CLI team.
+Requires Python 3.11 and newer, an [OpenAI API key](https://openai.com/api/) (embeddings, `process.py`, and `retrieve`'s rerank and query expansion), [fzf](https://github.com/junegunn/fzf) (used by the `main.py` split-view explorer and `retrieve`'s `/view`, `/copy`, `/run`, `/dump`, `/time`, and `/ls` commands), and [Ch](https://github.com/MehmetMHY/ch) itself on PATH (used by `/run`, `/ls`, and the explorer to resume a session). Model pricing for the cost estimates the scripts print is fetched from the [models.dev](https://models.dev/) API and cached locally for a few days; models.dev is an open-source model catalog maintained by the [Opencode](https://opencode.ai/) CLI team.
 
 Create a virtual environment and install dependencies:
 
@@ -46,7 +46,6 @@ python3 -m venv env
 source env/bin/activate
 pip3 install -r requirements.txt
 export OPENAI_API_KEY="your-openai-key-here"
-export GROQ_API_KEY="your-groq-key-here"
 ```
 
 ## Usage
@@ -143,7 +142,7 @@ python3 docs/run.py
 
 ## Tests
 
-A local unit test suite lives in `tests/` and runs with `python3 -m pytest`. The tests make no API calls: all OpenAI/Groq interactions are mocked, DB tests use in-memory SQLite, and filesystem tests use temp dirs. The suite covers pure functions (truncation, RRF fusion, epoch parsing, noise filtering), defensive validation (hallucinated ID dropping in rerank, graceful fallbacks in query expansion), DB operations (migrations, FTS5, embeddings cache), and command handlers (`/len` range validation, `/time` token parsing, `/purge` confirmation gate, `/dump` merge ordering).
+A local unit test suite lives in `tests/` and runs with `python3 -m pytest`. The tests make no API calls: all OpenAI interactions are mocked, DB tests use in-memory SQLite, and filesystem tests use temp dirs. The suite covers pure functions (truncation, RRF fusion, epoch parsing, noise filtering), defensive validation (hallucinated ID dropping in rerank, graceful fallbacks in query expansion), DB operations (migrations, FTS5, embeddings cache), and command handlers (`/len` range validation, `/time` token parsing, `/purge` confirmation gate, `/dump` merge ordering).
 
 ## License
 

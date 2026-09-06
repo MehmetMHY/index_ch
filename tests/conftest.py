@@ -4,7 +4,7 @@ config.py raises SystemExit if ~/.ch/ and ~/.ch/tmp/ don't exist, and
 search.py / process.py construct OpenAI clients at import time. This conftest
 runs before any test module imports those, so we:
   1. Point HOME at a temp dir and create ~/.ch/tmp/ inside it.
-  2. Set a dummy GROQ_API_KEY so search.py's client construction doesn't fail.
+  2. Set a dummy OPENAI_API_KEY so search.py's client construction doesn't fail.
 """
 
 import os
@@ -15,7 +15,7 @@ import tempfile
 
 _tmp_home = tempfile.mkdtemp(prefix="index_ch_test_home_")
 os.environ["HOME"] = _tmp_home
-os.environ["GROQ_API_KEY"] = "test-key-not-real"
+os.environ["OPENAI_API_KEY"] = "test-key-not-real"
 
 _ch_dir = os.path.join(_tmp_home, ".ch")
 _chats_dir = os.path.join(_ch_dir, "tmp")

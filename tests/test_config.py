@@ -27,9 +27,9 @@ class TestModelProvider:
         assert MODEL_PROVIDER[SUMMARY_MODEL] == "openai"
         assert MODEL_PROVIDER[EMBEDDING_MODEL] == "openai"
 
-    def test_groq_models_map_to_groq(self):
-        assert MODEL_PROVIDER[RERANK_MODEL] == "groq"
-        assert MODEL_PROVIDER[QUERY_EXPANSION_MODEL] == "groq"
+    def test_retrieval_models_map_to_openai(self):
+        assert MODEL_PROVIDER[RERANK_MODEL] == "openai"
+        assert MODEL_PROVIDER[QUERY_EXPANSION_MODEL] == "openai"
 
 
 class TestPricingTtl:

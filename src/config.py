@@ -29,26 +29,22 @@ DB_PATH = os.path.join(CACHE_DIR, "chats.db")
 EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
 PRICING_CACHE_PATH = os.path.join(CACHE_DIR, "pricing_cache.json")
 
-# models. build.py/process.py stay on OpenAI (the stored embeddings define the
-# vector space and cannot change provider). retrieve's two LLM steps (rerank,
-# query expansion) run on Groq for speed and cost; it reaches Groq through the
-# OpenAI-compatible endpoint below. embeddings always stay on OpenAI.
+# models. embeddings define the stored vector space and cannot change without a
+# full re-embed. retrieval LLM steps use OpenAI for rerank and query expansion.
 SUMMARY_MODEL = "gpt-5.4-nano"  # process.py (OpenAI)
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI, defines the vector space
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"  # needs GROQ_API_KEY
-RERANK_MODEL = "openai/gpt-oss-120b"  # Groq, stronger ranking quality
-RERANK_EFFORT = "low"
-QUERY_EXPANSION_MODEL = "openai/gpt-oss-20b"  # Groq, a simple rewrite
-QUERY_EXPANSION_EFFORT = "low"
+RERANK_MODEL = "gpt-5.6-luna"
+RERANK_EFFORT = "high"
+QUERY_EXPANSION_MODEL = "gpt-5.6-luna"
+QUERY_EXPANSION_EFFORT = "high"
 
 # Which models.dev provider serves each model. Used by pricing.py to look up
 # the right entry in the catalog (model ids are not unique across providers).
-# OpenAI serves bare ids; Groq serves the openai/gpt-oss-* ids.
 MODEL_PROVIDER = {
     SUMMARY_MODEL: "openai",
     EMBEDDING_MODEL: "openai",
-    RERANK_MODEL: "groq",
-    QUERY_EXPANSION_MODEL: "groq",
+    RERANK_MODEL: "openai",
+    QUERY_EXPANSION_MODEL: "openai",
 }
 
 # Pricing is fetched from https://models.dev/api.json and cached locally at

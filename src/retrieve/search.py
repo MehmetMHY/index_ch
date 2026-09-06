@@ -1,4 +1,3 @@
-import os
 import time
 
 import numpy as np
@@ -7,7 +6,6 @@ from openai import OpenAI
 
 from config import (
     EMBEDDING_MODEL,
-    GROQ_BASE_URL,
     RERANK_MODEL,
     RERANK_EFFORT,
     QUERY_EXPANSION_MODEL,
@@ -26,20 +24,13 @@ from .state import Session
 from . import color
 from .cache import fts_search
 
-# OpenAI for embeddings (the stored vectors are text-embedding-3-small, so the
-# query must embed in the same space). Groq for the two retrieval LLM steps
-# (rerank, query expansion) via its OpenAI-compatible endpoint, for speed.
+# OpenAI for embeddings and the two retrieval LLM steps. The stored vectors are
+# text-embedding-3-small, so the query must embed in the same space.
 client = OpenAI(max_retries=3, http_client=httpx.Client(timeout=30))
-groq_client = OpenAI(
-    base_url=GROQ_BASE_URL,
-    api_key=os.environ.get("GROQ_API_KEY"),
-    max_retries=3,
-    http_client=httpx.Client(timeout=30),
-)
 
 
 def warm_connections():
-    """Best-effort: open the HTTPS connections to OpenAI and Groq up front so the
+    """Best-effort: open the HTTPS connections to OpenAI up front so the
     first real query does not pay the TLS/handshake cold-start (~1s). Runs in a
     background thread at startup; any failure is ignored (the query path retries).
     """
@@ -48,10 +39,10 @@ def warm_connections():
     except Exception:
         pass
     try:
-        groq_client.chat.completions.create(
+        client.chat.completions.create(
             model=RERANK_MODEL,
             messages=[{"role": "user", "content": "hi"}],
-            max_tokens=1,
+            max_completion_tokens=1,
         )
     except Exception:
         pass
@@ -101,7 +92,7 @@ def expand_query(query, n=NUM_EXPANSIONS):
     if n <= 0:
         return [], 0, 0
     try:
-        resp = groq_client.chat.completions.parse(
+        resp = client.chat.completions.parse(
             model=QUERY_EXPANSION_MODEL,
             reasoning_effort=QUERY_EXPANSION_EFFORT,
             messages=[
@@ -140,7 +131,7 @@ def rerank(query, candidate_ids, meta):
         f"<document id={d['id']!r}>\n{d['text']}\n</document>" for d in docs
     )
     try:
-        resp = groq_client.chat.completions.parse(
+        resp = client.chat.completions.parse(
             model=RERANK_MODEL,
             reasoning_effort=RERANK_EFFORT,
             messages=[
@@ -257,7 +248,7 @@ def search(session: Session, query: str):
     if do_rerank and fused:
         # Rerank the top candidates with the LLM. Cap at RERANK_POOL (or min(top_k, 25) for CLI /len),
         # so large result limits (e.g. browsing all candidates in fzf) do not send hundreds of
-        # documents to Groq in a single listwise prompt.
+        # documents to the LLM in a single listwise prompt.
         rerank_n = min(len(fused), max(RERANK_POOL, min(top_k, 25)))
         ranked, rerank_in, rerank_out = rerank(query, fused[:rerank_n], session.meta)
         if len(fused) > rerank_n:
