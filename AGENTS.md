@@ -39,7 +39,8 @@ Three scripts, run in order, plus a shared config:
   expansion. Embeddings must stay on OpenAI: the stored vectors are
   `text-embedding-3-small`, and the query has to embed in the same space, so
   the embedding model/provider cannot change without a full re-embed. Retrieval
-  LLM calls use `gpt-5.6-luna` with high reasoning and must keep supporting
+  LLM calls use `gpt-5.6-luna` (high reasoning for rerank, medium for
+  query expansion) and must keep supporting
   `json_schema` structured outputs (`chat.completions.parse`).
 - `build.py` reads chat JSON from `~/.ch/tmp/`, strips auto-generated noise
   (code dumps, file pastes, command output), and stores cleaned text in the

@@ -36,7 +36,7 @@ EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI, defines the vector space
 RERANK_MODEL = "gpt-5.6-luna"
 RERANK_EFFORT = "high"
 QUERY_EXPANSION_MODEL = "gpt-5.6-luna"
-QUERY_EXPANSION_EFFORT = "high"
+QUERY_EXPANSION_EFFORT = "medium"
 
 # Which models.dev provider serves each model. Used by pricing.py to look up
 # the right entry in the catalog (model ids are not unique across providers).
