@@ -28,6 +28,9 @@ os.makedirs(TMP_DIR, exist_ok=True)
 DB_PATH = os.path.join(CACHE_DIR, "chats.db")
 EMBEDDINGS_CACHE_PATH = os.path.join(CACHE_DIR, "embeddings_cache.npz")
 PRICING_CACHE_PATH = os.path.join(CACHE_DIR, "pricing_cache.json")
+# persistent readline history for the main.py REPL prompt (up/down arrow recall)
+QUERY_HISTORY_PATH = os.path.join(CACHE_DIR, "query_history")
+QUERY_HISTORY_MAX = 1000
 
 # models. embeddings define the stored vector space and cannot change without a
 # full re-embed. retrieval LLM steps use OpenAI for rerank and query expansion.

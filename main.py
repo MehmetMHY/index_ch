@@ -4,6 +4,7 @@
 Prompts to update the cache, then drops into a REPL where:
 - Empty ENTER browses all chats (newest to oldest)
 - A typed query runs hybrid vector + keyword search with LLM reranking
+- Up/Down arrow recalls previously submitted queries (persistent across sessions)
 - /history re-runs a past query
 - /exit quits
 
@@ -51,6 +52,51 @@ MAGENTA = "\033[35m"
 RED = "\033[31m"
 
 SEARCH_HISTORY = []
+
+
+def _load_prompt_history():
+    """Enable up/down arrow recall of previous prompts via readline.
+
+    Loads persistent history from disk so recall works across sessions. No-op
+    when readline is unavailable (e.g. non-Unix) or stdin is not a TTY."""
+    if not sys.stdin.isatty():
+        return
+    try:
+        import readline
+    except ImportError:
+        return
+    readline.set_history_length(0)  # unbounded in-memory; we cap on write
+    try:
+        from config import QUERY_HISTORY_PATH
+
+        readline.read_history_file(QUERY_HISTORY_PATH)
+    except (ImportError, FileNotFoundError, OSError):
+        pass
+
+
+def _record_prompt(query):
+    """Append a submitted prompt to readline history and persist it.
+
+    Consecutive duplicates are skipped (like bash ignoredups) so recall is not
+    cluttered with repeats. Silently no-ops if readline is unavailable or stdin
+    is not a TTY (piped input / tests), matching _load_prompt_history's guard."""
+    if not sys.stdin.isatty():
+        return
+    try:
+        import readline
+    except ImportError:
+        return
+    last = readline.get_history_item(readline.get_current_history_length())
+    if last is not None and last == query:
+        return
+    readline.add_history(query)
+    try:
+        from config import QUERY_HISTORY_PATH, QUERY_HISTORY_MAX
+
+        readline.set_history_length(QUERY_HISTORY_MAX)
+        readline.write_history_file(QUERY_HISTORY_PATH)
+    except (ImportError, OSError):
+        pass
 
 
 def require_ch_dirs():
@@ -500,12 +546,16 @@ def main():
 
     _drain_stdin()
     print_banner()
+    _load_prompt_history()
 
     while True:
         try:
             query = input(f"{BOLD}{BLUE}> {RESET}").strip()
         except (KeyboardInterrupt, EOFError):
             break
+
+        if query:
+            _record_prompt(query)
 
         if not query:
             # Browse all chats newest-to-oldest

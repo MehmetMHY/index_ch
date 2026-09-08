@@ -249,6 +249,15 @@ The REPL loop in `main.py`:
 - A typed query runs hybrid vector + keyword search with LLM reranking against
   the embedded chats and opens the split-view explorer in results mode
   (`results> ` prompt) with all matches.
+- Up/Down arrow at an empty prompt recalls previously submitted queries via
+  `readline` history. `_load_prompt_history` imports `readline` (which enables
+  arrow-key line editing on the `input()` prompt) and loads persistent history
+  from `config.QUERY_HISTORY_PATH` (`~/.ch/index/query_history`) at startup, so
+  recall works across sessions. `_record_prompt` appends each submitted
+  non-empty prompt and persists it (capped at `QUERY_HISTORY_MAX`, 1000 entries;
+  consecutive duplicates skipped like bash `ignoredups`). Both are no-ops when
+  `readline` is unavailable or stdin is not a TTY (piped input / tests), so they
+  never raise and never touch real readline state under the test suite.
 - `/history` (or `/hist`) opens an fzf picker of past search queries from the
   session to re-run.
 - `/help` (or `/h`) reprints the banner.
@@ -307,10 +316,11 @@ image. `diagrams.html` itself was removed once the PNGs replaced it.
 
 - All generated data lives in `~/.ch/index/` (the database, the `.npz` embeddings
   cache, the `pricing_cache.json` catalog snapshot, SQLite journal/WAL
-  sidecars, `~/.ch/index/tmp/` scratch files for `retrieve`'s `/view`, and
+  sidecars, `~/.ch/index/tmp/` scratch files for `retrieve`'s `/view`,
   `~/.ch/index/tmp/ls_preview_*.txt` files for `/ls`'s precomputed fzf
-  previews). It is created automatically by `config.py` only after `~/.ch/`
-  and `~/.ch/tmp/` already exist.
+  previews, and `~/.ch/index/query_history` for `main.py`'s persistent
+  readline prompt history). It is created automatically by `config.py` only
+  after `~/.ch/` and `~/.ch/tmp/` already exist.
 - The database is derived data. `build.py` rebuilds the cleaned text; re-running
   `process.py` re-fills summaries/embeddings but costs money (see below). Deleting
   `~/.ch/index/chats.db` means a full rebuild and re-processing.
@@ -375,7 +385,7 @@ insert/update/backfill, FTS5, embeddings cache), pricing (cache load/save,
 refresh triggers, stale-cache fallback, None on unknown, retry loop with
 mocked urlopen), and command handlers
 (`/len` range validation, `/time` token parsing, `/purge` confirmation gate,
-`/dump` merge ordering and skip logic). For changes that could mutate or
+`/dump` merge ordering and skip logic, prompt history load/record/dedup). For changes that could mutate or
 corrupt data, also test on a copy of the database, not the real one.
 
 ## Cost awareness

@@ -72,6 +72,7 @@ At the `>` prompt:
 
 - Press **ENTER** with an empty prompt to browse all chats newest to oldest.
 - Type a **query** to search your chats by meaning with hybrid search and LLM reranking.
+- Press **Up** / **Down** at an empty prompt to recall and edit previously submitted queries (persistent across sessions, stored in `~/.ch/index/query_history`).
 - Type `/history` or `/hist` to fuzzy-pick and re-run a past query from your session.
 - Type `/help` or `/h` to display the banner and commands.
 - Type `quit`, `exit`, `:q`, or `/q` to exit.

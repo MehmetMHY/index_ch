@@ -71,6 +71,102 @@ class TestFilenameEpoch:
         assert main_module._filename_epoch("") is None
 
 
+class TestPromptHistory:
+    """_load_prompt_history / _record_prompt: readline-backed arrow recall.
+
+    Both helpers must be no-ops when stdin is not a TTY (pytest, pipes) or
+    when readline is unavailable, so they never raise and never touch the
+    real readline state under tests. _record_prompt skips consecutive
+    duplicates and persists history to config.QUERY_HISTORY_PATH.
+    """
+
+    def test_load_noop_when_not_a_tty(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: False)
+        with patch("readline.read_history_file") as mock_read:
+            main_module._load_prompt_history()
+        mock_read.assert_not_called()
+
+    def test_load_noop_when_readline_missing(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch.dict(sys.modules, {"readline": None}):
+            assert main_module._load_prompt_history() is None
+
+    def test_load_reads_history_file(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch("readline.set_history_length") as mock_len, patch(
+            "readline.read_history_file"
+        ) as mock_read:
+            main_module._load_prompt_history()
+        mock_len.assert_called_once_with(0)
+        mock_read.assert_called_once()
+
+    def test_load_tolerates_missing_history_file(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch("readline.set_history_length"), patch(
+            "readline.read_history_file", side_effect=FileNotFoundError
+        ):
+            main_module._load_prompt_history()
+
+    def test_record_noop_when_not_a_tty(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: False)
+        with patch("readline.add_history") as mock_add:
+            main_module._record_prompt("hello")
+        mock_add.assert_not_called()
+
+    def test_record_noop_when_readline_missing(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch.dict(sys.modules, {"readline": None}):
+            assert main_module._record_prompt("hello") is None
+
+    def test_record_appends_and_persists(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch("readline.get_current_history_length", return_value=0), patch(
+            "readline.get_history_item", return_value=None
+        ), patch("readline.add_history") as mock_add, patch(
+            "readline.set_history_length"
+        ) as mock_len, patch(
+            "readline.write_history_file"
+        ) as mock_write:
+            main_module._record_prompt("jwt auth")
+        mock_add.assert_called_once_with("jwt auth")
+        mock_write.assert_called_once()
+        mock_len.assert_called_once()
+
+    def test_record_skips_consecutive_duplicate(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch("readline.get_current_history_length", return_value=1), patch(
+            "readline.get_history_item", return_value="jwt auth"
+        ), patch("readline.add_history") as mock_add, patch(
+            "readline.write_history_file"
+        ) as mock_write:
+            main_module._record_prompt("jwt auth")
+        mock_add.assert_not_called()
+        mock_write.assert_not_called()
+
+    def test_record_allows_repeats_after_a_different_prompt(
+        self, main_module, monkeypatch
+    ):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch("readline.get_current_history_length", return_value=1), patch(
+            "readline.get_history_item", return_value="sqlite"
+        ), patch("readline.add_history") as mock_add, patch(
+            "readline.write_history_file"
+        ):
+            main_module._record_prompt("jwt auth")
+        mock_add.assert_called_once_with("jwt auth")
+
+    def test_record_tolerates_write_failure(self, main_module, monkeypatch):
+        monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
+        with patch("readline.get_current_history_length", return_value=0), patch(
+            "readline.get_history_item", return_value=None
+        ), patch("readline.add_history"), patch(
+            "readline.set_history_length"
+        ), patch(
+            "readline.write_history_file", side_effect=OSError("disk full")
+        ):
+            main_module._record_prompt("jwt auth")
+
+
 class TestPromptUpdateCache:
     """prompt_update_cache: fzf yes/no picker. Returns True for yes."""
 
