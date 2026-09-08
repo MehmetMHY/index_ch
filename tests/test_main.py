@@ -159,9 +159,7 @@ class TestPromptHistory:
         monkeypatch.setattr(main_module.sys.stdin, "isatty", lambda: True)
         with patch("readline.get_current_history_length", return_value=0), patch(
             "readline.get_history_item", return_value=None
-        ), patch("readline.add_history"), patch(
-            "readline.set_history_length"
-        ), patch(
+        ), patch("readline.add_history"), patch("readline.set_history_length"), patch(
             "readline.write_history_file", side_effect=OSError("disk full")
         ):
             main_module._record_prompt("jwt auth")
