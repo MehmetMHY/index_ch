@@ -503,7 +503,12 @@ def main():
         run_cache_update()
 
     # Start spinner before heavy imports (numpy, openai, httpx, pydantic)
-    from retrieve.spinner import start_startup_spinner, stop_startup_spinner, Spinner
+    from retrieve.spinner import (
+        start_startup_spinner,
+        stop_startup_spinner,
+        Spinner,
+        erase_wrapped_input,
+    )
 
     start_startup_spinner("Starting...")
 
@@ -548,11 +553,13 @@ def main():
     print_banner()
     _load_prompt_history()
 
+    _prompt = f"{BOLD}{BLUE}> {RESET}"
     while True:
         try:
-            query = input(f"{BOLD}{BLUE}> {RESET}").strip()
+            raw = input(_prompt)
         except (KeyboardInterrupt, EOFError):
             break
+        query = raw.strip()
 
         if query:
             _record_prompt(query)
@@ -600,6 +607,7 @@ def main():
         # Search
         ts = time.strftime("%m/%d/%Y %H:%MZ")
         SEARCH_HISTORY.append((query, ts))
+        erase_wrapped_input(_prompt, raw)
         try:
             with Spinner("searching"):
                 results, usage = search(session, query)

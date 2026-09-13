@@ -1,7 +1,43 @@
 import itertools
+import re
+import shutil
 import sys
 import threading
 import time
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def _visible_len(s):
+    """Length of *s* with ANSI color escapes stripped."""
+    return len(_ANSI_RE.sub("", s))
+
+
+def erase_wrapped_input(prompt, text):
+    """Erase the prompt + input line(s) a long query occupied on screen.
+
+    The spinner resets the cursor with \\r, which only reaches the start of
+    the current line. When a query wraps across several terminal lines the
+    wrapped fragments above the cursor are never cleared, so they sit on top
+    of the spinner animation and corrupt the display. When the input wrapped
+    we move the cursor back to the first line of the prompt and clear to the
+    end of the screen so the spinner starts on a clean line. A single-line
+    (non-wrapped) input is left untouched to keep the familiar prompt + query
+    line visible above the spinner. No-op when stdout is not a TTY.
+    """
+    if not sys.stdout.isatty():
+        return
+    try:
+        cols = shutil.get_terminal_size().columns or 80
+    except OSError:
+        cols = 80
+    if cols <= 0:
+        return
+    up = (_visible_len(prompt) + len(text) + cols - 1) // cols
+    if up <= 1:
+        return
+    sys.stdout.write(f"\033[{up}A\r\033[J")
+    sys.stdout.flush()
 
 
 class Spinner:

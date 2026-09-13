@@ -6,7 +6,7 @@ from build import get_connection, backfill_message_epochs, backfill_archived
 from config import TOP_K, NUM_EXPANSIONS
 from pricing import warm
 
-from .spinner import Spinner, stop_startup_spinner
+from .spinner import Spinner, stop_startup_spinner, erase_wrapped_input
 from .state import Session
 from .cache import ensure_fts, load_vectors
 from .search import search, warm_connections
@@ -113,7 +113,9 @@ def main(argv=None):
                     if session.time_filter
                     else color.blue("> ")
                 )
-                query = input(prompt).strip()
+                raw = input(prompt)
+                query = raw.strip()
+                erase_wrapped_input(prompt, raw)
         except EOFError:
             # Ctrl+D: exit cleanly
             print()
