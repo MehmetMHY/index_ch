@@ -231,7 +231,12 @@ provider would need a `MODEL_PROVIDER` entry. `warm()` forces an eager refresh
 at startup of `process.py` and `retrieve` (before any work is done) so the
 cache is predictable and not coupled to whether the run actually reaches
 `estimate_cost` - without it, a no-op `process.py` (nothing to process) would
-skip `print_summary` and never refresh the cache.
+skip `print_summary` and never refresh the cache. In `main.py` `warm()` is
+dispatched to a daemon thread (alongside `warm_connections`) rather than called
+on the main thread, because pricing is only consumed when a cost estimate
+prints after a search, so a slow catalog fetch must never block boot; if the
+fetch has not finished by the first search, `estimate_cost` returns `None` and
+the caller prints `?`, the documented fallback.
 
 `main.py` (at the repo root) is the unified entrypoint uniting search and browse
 in a single split-view experience. It preflights `~/.ch/` and `~/.ch/tmp/`

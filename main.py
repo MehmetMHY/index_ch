@@ -520,8 +520,11 @@ def main():
     from retrieve.state import Session
     from retrieve.cmds.ls import list_chats_by_recency
 
-    # Warm API connections in background while DB setup runs
+    # Warm API connections and pricing cache in background while DB setup runs.
+    # Both are only consumed after a search actually runs (TLS for the query,
+    # pricing for the cost estimate it prints), so neither should gate boot.
     threading.Thread(target=warm_connections, daemon=True).start()
+    threading.Thread(target=warm, daemon=True).start()
 
     conn = get_connection()
     try:
@@ -531,7 +534,6 @@ def main():
         _drain_stdin()
         ensure_fts(conn)
         ids, mat, meta = load_vectors(conn)
-        warm()
     except KeyboardInterrupt:
         print()
         conn.close()

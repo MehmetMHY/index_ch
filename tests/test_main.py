@@ -402,25 +402,20 @@ class TestMainLoop:
         with patch("builtins.input", fake_input):
             # main() will try to import heavy modules - we need to prevent that
             # by patching the import machinery
-            result = self._run_main_with_mocks(
+            result, _ = self._run_main_with_mocks(
                 main_module, monkeypatch, fake_conn, fake_session
             )
         assert result == 0
 
     def _run_main_with_mocks(self, main_module, monkeypatch, fake_conn, fake_session):
-        """Helper: run main() with mocked heavy imports."""
-        # The heavy imports inside main() are:
-        # from retrieve.spinner import ...
-        # from build import ...
-        # from config import ...
-        # from pricing import ...
-        # from retrieve.cache import ...
-        # from retrieve.search import ...
-        # from retrieve.state import ...
-        # from retrieve.cmds.ls import ...
-        # We mock them by patching __import__ to return mocks for these modules
+        """Helper: run main() with mocked heavy imports.
+
+        Returns a dict of captured callables keyed by name so individual tests
+        can assert on what main() actually invoked (e.g. warm in a thread).
+        """
         import builtins
 
+        captured = {"warm": None, "warm_connections": None}
         original_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -446,7 +441,108 @@ class TestMainLoop:
                     mod.DB_PATH = "/fake/db"
                     mod.PREVIEW_BATCH = 500
                 if name == "pricing":
-                    mod.warm = lambda: None
+
+                    def _warm():
+                        captured["warm"] = "called"
+
+                    mod.warm = _warm
+                if name == "retrieve.cache":
+                    mod.ensure_fts = lambda c: None
+                    mod.load_vectors = lambda c: ([], MagicMock(), {})
+                if name == "retrieve.search":
+
+                    def _warm_conn():
+                        captured["warm_connections"] = "called"
+
+                    mod.search = lambda s, q: ([], {})
+                    mod.warm_connections = _warm_conn
+                if name == "retrieve.state":
+                    mod.Session = MagicMock(return_value=fake_session)
+                if name == "retrieve.cmds.ls":
+                    mod.list_chats_by_recency = lambda *a: []
+                return mod
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        return main_module.main(), captured
+
+
+class TestWarmInBackground:
+    """warm() and warm_connections() must run in daemon threads, not on the
+    main thread, so a slow pricing catalog fetch never blocks boot."""
+
+    def test_warm_is_threaded_not_synchronous(self, main_module, monkeypatch):
+        """warm() is dispatched via threading.Thread, never called directly on
+        the main thread. Captures the Thread target and asserts it is warm,
+        and that the main thread did NOT call warm() itself."""
+        import threading
+
+        thread_targets = []
+        warm_calls = []
+
+        class CapturingThread:
+            def __init__(self, target=None, daemon=None, **kwargs):
+                self._target = target
+                self._daemon = daemon
+                thread_targets.append(target)
+
+            def start(self):
+                # do not actually run; just record the target
+                pass
+
+            def join(self, timeout=None):
+                pass
+
+            @property
+            def target(self):
+                return self._target
+
+            def is_alive(self):
+                return False
+
+        def fake_input(prompt):
+            raise EOFError
+
+        monkeypatch.setattr(main_module, "require_ch_dirs", lambda: None)
+        monkeypatch.setattr(main_module, "prompt_update_cache", lambda: False)
+        monkeypatch.setattr(main_module, "print_banner", lambda: None)
+        monkeypatch.setattr(main_module, "_drain_stdin", lambda: None)
+        monkeypatch.setattr(main_module.threading, "Thread", CapturingThread)
+
+        fake_conn = MagicMock()
+        fake_session = MagicMock()
+
+        import builtins
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("retrieve") or name in (
+                "build",
+                "config",
+                "pricing",
+                "explorer_preview",
+            ):
+                mod = MagicMock()
+                if name == "retrieve.spinner":
+                    mod.start_startup_spinner = lambda *a: None
+                    mod.stop_startup_spinner = lambda *a: None
+                    mod.Spinner = MagicMock()
+                if name == "build":
+                    mod.get_connection = lambda: fake_conn
+                    mod.backfill_message_epochs = lambda c: None
+                    mod.backfill_archived = lambda c: None
+                if name == "config":
+                    mod.TOP_K = 5
+                    mod.NUM_EXPANSIONS = 3
+                    mod.DB_PATH = "/fake/db"
+                    mod.PREVIEW_BATCH = 500
+                if name == "pricing":
+
+                    def _warm():
+                        warm_calls.append("main-thread")
+
+                    mod.warm = _warm
                 if name == "retrieve.cache":
                     mod.ensure_fts = lambda c: None
                     mod.load_vectors = lambda c: ([], MagicMock(), {})
@@ -461,7 +557,96 @@ class TestMainLoop:
             return original_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
-        return main_module.main()
+        with patch("builtins.input", fake_input):
+            main_module.main()
+
+        # warm was handed to a Thread, not called on the main thread
+        assert warm_calls == [], "warm() was called on the main thread (blocking boot)"
+        assert any(
+            t is not None and t.__name__ == "_warm" for t in thread_targets
+        ), "warm() was not dispatched to a background thread"
+
+    def test_warm_connections_is_threaded(self, main_module, monkeypatch):
+        """warm_connections() is also dispatched via threading.Thread (the
+        pre-existing behavior must be preserved)."""
+        thread_targets = []
+
+        class CapturingThread:
+            def __init__(self, target=None, daemon=None, **kwargs):
+                thread_targets.append(target)
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        def fake_input(prompt):
+            raise EOFError
+
+        monkeypatch.setattr(main_module, "require_ch_dirs", lambda: None)
+        monkeypatch.setattr(main_module, "prompt_update_cache", lambda: False)
+        monkeypatch.setattr(main_module, "print_banner", lambda: None)
+        monkeypatch.setattr(main_module, "_drain_stdin", lambda: None)
+        monkeypatch.setattr(main_module.threading, "Thread", CapturingThread)
+
+        fake_conn = MagicMock()
+        fake_session = MagicMock()
+
+        import builtins
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("retrieve") or name in (
+                "build",
+                "config",
+                "pricing",
+                "explorer_preview",
+            ):
+                mod = MagicMock()
+                if name == "retrieve.spinner":
+                    mod.start_startup_spinner = lambda *a: None
+                    mod.stop_startup_spinner = lambda *a: None
+                    mod.Spinner = MagicMock()
+                if name == "build":
+                    mod.get_connection = lambda: fake_conn
+                    mod.backfill_message_epochs = lambda c: None
+                    mod.backfill_archived = lambda c: None
+                if name == "config":
+                    mod.TOP_K = 5
+                    mod.NUM_EXPANSIONS = 3
+                    mod.DB_PATH = "/fake/db"
+                    mod.PREVIEW_BATCH = 500
+                if name == "pricing":
+                    mod.warm = lambda: None
+                if name == "retrieve.cache":
+                    mod.ensure_fts = lambda c: None
+                    mod.load_vectors = lambda c: ([], MagicMock(), {})
+                if name == "retrieve.search":
+
+                    def _warm_conn():
+                        pass
+
+                    mod.search = lambda s, q: ([], {})
+                    mod.warm_connections = _warm_conn
+                if name == "retrieve.state":
+                    mod.Session = MagicMock(return_value=fake_session)
+                if name == "retrieve.cmds.ls":
+                    mod.list_chats_by_recency = lambda *a: []
+                return mod
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        with patch("builtins.input", fake_input):
+            main_module.main()
+
+        assert any(
+            t is not None and t.__name__ == "_warm_conn" for t in thread_targets
+        ), "warm_connections() was not dispatched to a background thread"
 
 
 class TestActionSaveDownloads:
