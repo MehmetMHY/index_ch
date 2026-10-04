@@ -39,7 +39,7 @@ Three scripts, run in order, plus a shared config:
   expansion. Embeddings must stay on OpenAI: the stored vectors are
   `text-embedding-3-small`, and the query has to embed in the same space, so
   the embedding model/provider cannot change without a full re-embed. Retrieval
-  LLM calls use `gpt-5.6-luna` (high reasoning for rerank, medium for
+  LLM calls use `gpt-6-luna` (high reasoning for rerank, low for
   query expansion) and must keep supporting
   `json_schema` structured outputs (`chat.completions.parse`).
 - `build.py` reads chat JSON from `~/.ch/tmp/`, strips auto-generated noise
@@ -54,20 +54,20 @@ Three scripts, run in order, plus a shared config:
   and if its hash also changed it is re-ingested via the changed path (which
   clears the flag). Only rows not already archived are flipped, so a steady-
   state build does not bump `updated_at` and needlessly invalidate caches.
-- `process.py` summarizes each chat (`gpt-5.4-nano`), condenses that summary
+- `process.py` summarizes each chat (`gpt-6-luna`, high reasoning), condenses that summary
   into the 1-2 sentence `short_summary` shown in search results (same model,
-  fed the summary not the raw chat, so backfilling it is ~10x cheaper), and
+  with high reasoning, fed the summary not the raw chat, so backfilling it is ~10x cheaper), and
   embeds the summary (`text-embedding-3-small`). Resumable: `pending_rows`
   selects rows missing any of the three, and `process_row` skips each step whose
   column is already filled, so adding a column never re-summarizes or re-embeds
   what is already paid for. `save` only writes the embedding when that run
   computed one, so a short-summary-only pass cannot clobber existing vectors.
 - `retrieve` is an interactive prompt. Per query it optionally expands the
-  query into a few variants (OpenAI `gpt-5.6-luna`, structured output),
+  query into a few variants (OpenAI `gpt-6-luna`, low reasoning, structured output),
   embeds the original plus variants in one batched call (OpenAI
   `text-embedding-3-small`), runs vector search and FTS5 keyword search per
   query, fuses every ranking with Reciprocal Rank Fusion, reranks the top
-  candidates with OpenAI `gpt-5.6-luna` (listwise, structured outputs)
+  candidates with OpenAI `gpt-6-luna` (high reasoning, listwise, structured outputs)
   against the ORIGINAL query, and prints the top 5, each with a UTC timestamp
   from the chat's last message (`chat_epoch`). Within an equal rerank grade,
   results are ordered most-recent-first (recency tiebreak). On startup a daemon
@@ -434,7 +434,7 @@ unprompted.
   fed the ORIGINAL query, never a variant, so user intent stays intact.
   `embed_queries` batches the original query and all variants into one
   embeddings request (order restored via `.index`), so expansion adds a single
-  nano LLM call but no extra embedding round trips.
+  low-reasoning LLM call but no extra embedding round trips.
 - `retrieve`'s FTS index and embeddings cache invalidate on a signature of
   row count plus latest `updated_at`. If you change how rows are updated, make
   sure that signature still changes so the caches rebuild.

@@ -7,6 +7,7 @@ import json
 import os
 import time
 import urllib.error
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,15 +23,16 @@ from config import (
 # --- helpers / fixtures -----------------------------------------------------
 
 
-def make_catalog(openai_in=0.20, openai_out=1.25, llm_in=0.15, llm_out=0.60):
+def make_catalog(openai_in=0.20, openai_out=1.25):
     """A minimal catalog with the four project models and their providers."""
     return {
         "openai": {
             "models": {
-                SUMMARY_MODEL: {"cost": {"input": openai_in, "output": openai_out}},
+                **{
+                    model: {"cost": {"input": openai_in, "output": openai_out}}
+                    for model in (SUMMARY_MODEL, RERANK_MODEL, QUERY_EXPANSION_MODEL)
+                },
                 EMBEDDING_MODEL: {"cost": {"input": 0.02, "output": 0}},
-                RERANK_MODEL: {"cost": {"input": llm_in, "output": llm_out}},
-                QUERY_EXPANSION_MODEL: {"cost": {"input": llm_in, "output": llm_out}},
             }
         },
     }
@@ -137,18 +139,19 @@ class TestRefreshTriggers:
         assert pricing.get_price(SUMMARY_MODEL) == (0.20, 1.25)
 
     def test_missing_model_triggers_refresh(self, monkeypatch):
-        # cache has only process/embedding models, not the retrieval LLM
+        # cache has only embeddings, not the shared LLM
         partial = {
             "openai": {
                 "models": {
-                    SUMMARY_MODEL: {"cost": {"input": 0.20, "output": 1.25}},
                     EMBEDDING_MODEL: {"cost": {"input": 0.02, "output": 0}},
                 }
             }
         }
         _seed_cache(monkeypatch, partial, age=0)  # fresh, but model missing
-        monkeypatch.setattr(pricing, "_fetch_catalog", lambda: make_catalog())
-        assert pricing.get_price(RERANK_MODEL) == (0.15, 0.60)
+        fetch = MagicMock(return_value=make_catalog())
+        monkeypatch.setattr(pricing, "_fetch_catalog", fetch)
+        assert pricing.get_price(RERANK_MODEL) == (0.20, 1.25)
+        fetch.assert_called_once()
 
     def test_missing_cache_file_triggers_refresh(self, monkeypatch):
         # no cache file written at all
@@ -225,15 +228,16 @@ class TestWarm:
         partial = {
             "openai": {
                 "models": {
-                    SUMMARY_MODEL: {"cost": {"input": 0.20, "output": 1.25}},
                     EMBEDDING_MODEL: {"cost": {"input": 0.02, "output": 0}},
                 }
             },
         }
         _seed_cache(monkeypatch, partial, age=0)  # fresh, but retrieval model missing
-        monkeypatch.setattr(pricing, "_fetch_catalog", lambda: make_catalog())
+        fetch = MagicMock(return_value=make_catalog())
+        monkeypatch.setattr(pricing, "_fetch_catalog", fetch)
         pricing.warm()
-        assert pricing.get_price(RERANK_MODEL) == (0.15, 0.60)
+        assert pricing.get_price(RERANK_MODEL) == (0.20, 1.25)
+        fetch.assert_called_once()
 
     def test_warm_no_cache_triggers_refresh(self, monkeypatch):
         monkeypatch.setattr(pricing, "_fetch_catalog", lambda: make_catalog())
@@ -302,8 +306,8 @@ class TestCacheFile:
             "output": 1.25,
         }
         assert loaded["providers"]["openai"][RERANK_MODEL] == {
-            "input": 0.15,
-            "output": 0.60,
+            "input": 0.20,
+            "output": 1.25,
         }
 
     def test_save_is_atomic_no_tmp_left(self, monkeypatch):

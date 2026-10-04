@@ -34,12 +34,13 @@ QUERY_HISTORY_MAX = 1000
 
 # models. embeddings define the stored vector space and cannot change without a
 # full re-embed. retrieval LLM steps use OpenAI for rerank and query expansion.
-SUMMARY_MODEL = "gpt-5.4-nano"  # process.py (OpenAI)
+SUMMARY_MODEL = "gpt-6-luna"  # process.py (OpenAI)
+SUMMARY_EFFORT = "high"
 EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI, defines the vector space
-RERANK_MODEL = "gpt-5.6-luna"
+RERANK_MODEL = "gpt-6-luna"
 RERANK_EFFORT = "high"
-QUERY_EXPANSION_MODEL = "gpt-5.6-luna"
-QUERY_EXPANSION_EFFORT = "medium"
+QUERY_EXPANSION_MODEL = "gpt-6-luna"
+QUERY_EXPANSION_EFFORT = "low"
 
 # Which models.dev provider serves each model. Used by pricing.py to look up
 # the right entry in the catalog (model ids are not unique across providers).
