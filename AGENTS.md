@@ -46,7 +46,9 @@ Three scripts, run in order, plus a shared config:
   (code dumps, file pastes, command output), and stores cleaned text in the
   database. Incremental via a per-file `content_hash` (SHA-256 of the bytes):
   new files are inserted, files whose hash changed are re-ingested in place
-  (clearing summary/embedding so process.py redoes just them), unchanged files
+  (clearing summary/short_summary/embedding/error only when cleaned text changes,
+  so process.py redoes just those conversations). Metadata-only changes refresh
+  raw state/hash/timestamps without discarding generated data. Unchanged files
   are skipped. A chat whose source file vanished from `~/.ch/tmp/` is never
   deleted (its summary/embedding/raw are cached and were paid for): it is
   flagged `archived = 1` and bumped `updated_at` so retrieve's caches
@@ -154,6 +156,27 @@ Downloads` does the same but moves the temp file to `~/Downloads` on exit
   printed warning. The chat picker itself requires `fzf` (degrades to a message
   telling the user to pass a number if it's missing); `/run` requires `ch` on
   PATH.
+
+Native-image interoperability:
+
+- The original session JSON (including top-level `images` and `images_off`) is
+  stored in `chats.raw`. Cleaning, previews, summaries, and embeddings use only
+  conversation text; base64 image bytes never enter indexing-model requests.
+- `build_dump` preserves image records and rewrites their IDs and message
+  `image_ids` with a source-chat ID prefix. This keeps forked sessions sharing
+  original image IDs independent, including their individual disabled states.
+- Merged dumps use the newest chat's global `images_off` setting, including
+  chats with no images. When the merged setting is on, images from paused source
+  chats are individually disabled so a merge does not unexpectedly send them.
+  Ch applies its own configured image limits when sending the dump.
+- `update_entries` always refreshes raw/hash/epoch/updated_at and unarchives
+  returning files, but preserves generated columns when cleaned text is equal.
+  A text change clears summary, short_summary, embedding, and error using the
+  same SQL update. This works before and after process.py's column migrations.
+- Regression tests in `test_cmds_dump.py` cover native-image payload retention,
+  shared-ID isolation, paused sources, individual disabled settings, and paused
+  sessions without images. `test_build.py` covers preserved generated data on
+  metadata-only changes, text-change invalidation, and mixed update batches.
 
 `build.py` owns `get_connection` and the base table; `process.py` and
 `retrieve` import it. `retrieve` owns its own FTS5 index and embeddings

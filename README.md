@@ -27,7 +27,7 @@ Your best AI answers are easy to lose. When chats pile up, exact keyword search 
 
 The project is three scripts, run in order:
 
-1. `build.py` reads the chat JSON files, strips out auto-generated noise (code dumps, file pastes, command output), and stores the cleaned text in `chats.db`. It adds new files and re-ingests any whose contents changed (detected by a content hash), so a resumed chat picks up its new messages. Unchanged files are skipped, so re-running is cheap. A chat whose source file is deleted from `~/.ch/tmp/` is never removed (you paid for its summary and embedding): it is flagged `archived` and kept searchable.
+1. `build.py` reads the chat JSON files, strips out auto-generated noise (code dumps, file pastes, command output), and stores the cleaned text in `chats.db`. It adds new files and re-ingests any whose contents changed (detected by a content hash), so a resumed chat picks up its new messages. Metadata-only changes, such as image toggles, refresh the stored session without regenerating summaries or embeddings when cleaned text is unchanged. Unchanged files are skipped, so re-running is cheap. A chat whose source file is deleted from `~/.ch/tmp/` is never removed (you paid for its summary and embedding): it is flagged `archived` and kept searchable.
 
 2. `process.py` summarizes each chat with `gpt-6-luna`, condenses that summary into a 1-2 sentence blurb (also `gpt-6-luna`, both with high reasoning) for the search results, and embeds the summary with `text-embedding-3-small`, saving all three back to the database. Each step is skipped when its column is already filled, so it is resumable and re-running never redoes work you already paid for.
 
@@ -133,6 +133,8 @@ python3 docs/run.py
 
 ## Notes
 
+- Ch's native images are retained in cached session JSON and merged dumps, with image IDs kept distinct between source chats. Merged dumps inherit the newest chat's global image-sending setting; when that setting is on, images from paused source chats are kept individually disabled. Existing individual disabled settings are preserved. Ch enforces its configured image limits when sending the merged session.
+- Search and summaries remain text-only: image bytes are not sent to indexing models. You can search the conversation's descriptions of an image, not its pixels.
 - The path to the Ch chats (`~/.ch/tmp/`) is fixed and never modified.
 - `main.py` and the `src/` scripts require both `~/.ch/` and `~/.ch/tmp/` to already exist. Run Ch first if either directory is missing.
 - Each result shows a UTC timestamp (e.g. `Jul 27, 2025 09:45 UTC`) taken from the chat's last message, so resumed sessions sort and filter by when they were actually last used. It falls back to the epoch in the filename (`ch_session_<epoch>.json`) for chats with no messages.

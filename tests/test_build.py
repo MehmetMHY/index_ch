@@ -232,7 +232,8 @@ class TestUpdateEntries:
         insert_entries(db_conn, [("/tmp/test.json", result, "hash1")])
         # set summary
         db_conn.execute(
-            "UPDATE chats SET summary = 'old summary' WHERE file_path = '/tmp/test.json'"
+            "UPDATE chats SET summary = 'old summary', short_summary = 'old blurb', "
+            "embedding = '[1.0]', error = 'old error' WHERE file_path = '/tmp/test.json'"
         )
         db_conn.commit()
         # update with new content
@@ -242,10 +243,86 @@ class TestUpdateEntries:
         }
         update_entries(db_conn, [("/tmp/test.json", result2, "hash2")])
         row = db_conn.execute(
-            "SELECT summary, cleaned FROM chats WHERE file_path = '/tmp/test.json'"
+            "SELECT summary, cleaned, short_summary, embedding, error "
+            "FROM chats WHERE file_path = '/tmp/test.json'"
         ).fetchone()
         assert row[0] is None
         assert "USER: new" in row[1]
+        assert row[2:] == (None, None, None)
+
+    def test_metadata_only_update_preserves_generated_data(self, db_conn):
+        raw = {
+            "messages": [
+                {
+                    "user": "describe this",
+                    "bot": "a red car",
+                    "time": 1000,
+                    "image_ids": ["shot"],
+                }
+            ],
+            "images": [{"id": "shot", "data": "cGl4ZWxz"}],
+        }
+        cleaned = format_messages(raw["messages"])
+        insert_entries(
+            db_conn, [("/tmp/image.json", {"raw": raw, "cleaned": cleaned}, "hash1")]
+        )
+        db_conn.execute(
+            "UPDATE chats SET summary = 'red car', short_summary = 'car photo', "
+            "embedding = '[1.0]', error = 'saved error', archived = 1, updated_at = 'old'"
+        )
+        db_conn.commit()
+        raw["images_off"] = True
+        raw["images"][0]["disabled"] = True
+        update_entries(
+            db_conn, [("/tmp/image.json", {"raw": raw, "cleaned": cleaned}, "hash2")]
+        )
+        row = db_conn.execute(
+            "SELECT raw, content_hash, summary, short_summary, embedding, error, archived, updated_at FROM chats"
+        ).fetchone()
+        assert json.loads(row[0]) == raw
+        assert row[1:7] == ("hash2", "red car", "car photo", "[1.0]", "saved error", 0)
+        assert row[7] != "old"
+
+    def test_mixed_updates_only_clear_changed_text(self, db_conn):
+        initial = {"raw": {"messages": []}, "cleaned": "same conversation"}
+        insert_entries(
+            db_conn,
+            [
+                ("/tmp/same.json", initial, "old1"),
+                ("/tmp/changed.json", initial, "old2"),
+            ],
+        )
+        db_conn.execute(
+            "UPDATE chats SET summary = 'paid summary', "
+            "short_summary = 'paid blurb', embedding = '[1.0]'"
+        )
+        db_conn.commit()
+        update_entries(
+            db_conn,
+            [
+                (
+                    "/tmp/same.json",
+                    {
+                        "raw": {"messages": [], "images_off": True},
+                        "cleaned": "same conversation",
+                    },
+                    "new1",
+                ),
+                (
+                    "/tmp/changed.json",
+                    {"raw": {"messages": []}, "cleaned": "new conversation"},
+                    "new2",
+                ),
+            ],
+        )
+        rows = db_conn.execute(
+            "SELECT file_path, summary, short_summary, embedding "
+            "FROM chats ORDER BY file_path"
+        ).fetchall()
+        assert rows == [
+            ("/tmp/changed.json", None, None, None),
+            ("/tmp/same.json", "paid summary", "paid blurb", "[1.0]"),
+        ]
 
     def test_update_empty(self, db_conn):
         update_entries(db_conn, [])

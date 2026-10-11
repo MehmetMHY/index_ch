@@ -27,6 +27,8 @@ def build_dump(cids, meta):
     cids = sorted(cids, key=lambda cid: chat_epoch(meta[cid]) or 0)
 
     messages = []
+    images = []
+    paused_images = []
     source_files = []
     newest_raw = None
     skipped = []
@@ -40,8 +42,22 @@ def build_dump(cids, meta):
             with open(path, "rb") as f:
                 buf = f.read()
             raw = json.loads(buf)
+            source_images = [
+                {**image, "id": f"{cid}:{image['id']}"}
+                for image in (raw.get("images") or [])
+            ]
+            source_messages = []
             for msg in raw["messages"]:
-                messages.append({**msg, "source_file": name})
+                copied = {**msg, "source_file": name}
+                if msg.get("image_ids"):
+                    copied["image_ids"] = [
+                        f"{cid}:{image_id}" for image_id in msg["image_ids"]
+                    ]
+                source_messages.append(copied)
+            messages.extend(source_messages)
+            images.extend(source_images)
+            if raw.get("images_off", False):
+                paused_images.extend(source_images)
             source_files.append(name)
             newest_raw = raw  # cids is oldest->newest, so the last one wins
         except (OSError, json.JSONDecodeError, KeyError) as exc:
@@ -60,6 +76,14 @@ def build_dump(cids, meta):
         "source_files": source_files,
         "messages": messages,
     }
+    if images:
+        merged["images"] = images
+    if images or "images_off" in newest_raw:
+        merged["images_off"] = newest_raw.get("images_off", False)
+        # A paused source must not start sending because the newest chat is on.
+        if not merged["images_off"]:
+            for image in paused_images:
+                image["disabled"] = True
     return merged, skipped
 
 

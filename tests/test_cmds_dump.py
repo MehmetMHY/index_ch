@@ -33,6 +33,89 @@ def chat_file(tmp_path):
 
 
 class TestBuildDump:
+    @pytest.mark.parametrize("off", [False, True])
+    def test_single_chat_preserves_images_and_sending_setting(self, chat_file, off):
+        path, raw = chat_file
+        raw["messages"][0]["image_ids"] = ["shot"]
+        raw["images"] = [
+            {
+                "id": "shot",
+                "name": "shot.png",
+                "mime_type": "image/png",
+                "data": "cGl4ZWxz",
+                "disabled": False,
+            }
+        ]
+        raw["images_off"] = off
+        with open(path, "w") as f:
+            json.dump(raw, f)
+        merged, skipped = build_dump([1], {1: {"file_path": path}})
+        assert skipped == []
+        assert merged["images_off"] is off
+        assert merged["images"] == [{**raw["images"][0], "id": "1:shot"}]
+        assert merged["messages"][0]["image_ids"] == ["1:shot"]
+        # Export round-trips the bytes and references, without changing the source.
+        assert json.loads(json.dumps(merged))["images"] == merged["images"]
+        with open(path) as f:
+            assert json.load(f) == raw
+
+    @pytest.mark.parametrize("newest_off", [False, True])
+    def test_merge_namespaces_shared_ids_and_preserves_paused_sources(
+        self, tmp_path, newest_off
+    ):
+        meta = {}
+        for cid, off, data in [(1, True, "b2xk"), (2, newest_off, "bmV3")]:
+            raw = {
+                "messages": [
+                    {"user": "Loaded: shot.png", "bot": "", "image_ids": ["shared"]}
+                ],
+                "images": [
+                    {
+                        "id": "shared",
+                        "name": "shot.png",
+                        "mime_type": "image/png",
+                        "data": data,
+                    }
+                ],
+                "images_off": off,
+                "platform": "openai",
+            }
+            path = tmp_path / f"ch_session_{cid}.json"
+            path.write_text(json.dumps(raw))
+            meta[cid] = {"file_path": str(path), "last_message_epoch": cid}
+        merged, skipped = build_dump([2, 1], meta)
+        assert skipped == []
+        assert merged["images_off"] is newest_off
+        assert [msg["image_ids"] for msg in merged["messages"]] == [
+            ["1:shared"],
+            ["2:shared"],
+        ]
+        images = {image["id"]: image for image in merged["images"]}
+        assert images["1:shared"]["data"] == "b2xk"
+        assert images["2:shared"]["data"] == "bmV3"
+        if not newest_off:
+            assert images["1:shared"]["disabled"] is True
+            assert not images["2:shared"].get("disabled", False)
+
+    def test_preserves_individually_disabled_images(self, chat_file):
+        path, raw = chat_file
+        raw["messages"][0]["image_ids"] = ["shot"]
+        raw["images"] = [{"id": "shot", "data": "cGl4ZWxz", "disabled": True}]
+        with open(path, "w") as f:
+            json.dump(raw, f)
+        merged, _ = build_dump([1], {1: {"file_path": path}})
+        assert merged["images"][0]["disabled"] is True
+        assert merged["images_off"] is False
+
+    def test_preserves_paused_setting_without_images(self, chat_file):
+        path, raw = chat_file
+        raw["images_off"] = True
+        with open(path, "w") as f:
+            json.dump(raw, f)
+        merged, _ = build_dump([1], {1: {"file_path": path}})
+        assert merged["images_off"] is True
+        assert "images" not in merged
+
     def test_single_chat(self, chat_file):
         path, raw = chat_file
         meta = {1: {"file_path": path, "archived": False}}

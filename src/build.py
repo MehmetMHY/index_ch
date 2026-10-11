@@ -231,17 +231,20 @@ def insert_entries(conn, entries):
 def update_entries(conn, entries):
     """Re-ingest changed chats in place. entries: (file_path, result, hash).
 
-    Clears summary/embedding/error (when those columns exist) so process.py
-    re-summarizes and re-embeds the chat, and bumps updated_at so retrieve's
-    FTS and embeddings caches rebuild.
+    Refreshes raw state on every change, but only clears generated data when
+    cleaned text changes. Image toggles and other metadata-only changes keep
+    paid summaries/embeddings. updated_at still invalidates retrieve's caches.
     """
     entries = list(entries)
     if not entries:
         return
     now = datetime.now(timezone.utc).isoformat()
     cols = {row[1] for row in conn.execute("PRAGMA table_info(chats)")}
+    generated = [
+        c for c in ("summary", "short_summary", "embedding", "error") if c in cols
+    ]
     clear = "".join(
-        f", {c} = NULL" for c in ("summary", "embedding", "error") if c in cols
+        f", {c} = CASE WHEN cleaned = ? THEN {c} ELSE NULL END" for c in generated
     )
     if "archived" in cols:
         clear += ", archived = 0"
@@ -260,8 +263,9 @@ def update_entries(conn, entries):
                 message_epoch(result["raw"]),
                 content_hash,
                 now,
-                file_path,
             )
+            + (result["cleaned"],) * len(generated)
+            + (file_path,)
             for file_path, result, content_hash in entries
         ],
     )
